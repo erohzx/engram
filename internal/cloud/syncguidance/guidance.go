@@ -1,4 +1,4 @@
-package syncguidance
+﻿package syncguidance
 
 import (
 	"errors"
@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/constants"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/cloud/constants"
+	"engram-hybrid/internal/store"
 )
 
 const header = "Known repairable cloud sync failure detected."

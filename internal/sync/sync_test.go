@@ -1,4 +1,4 @@
-package sync
+﻿package sync
 
 import (
 	"crypto/sha256"
@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/chunkcodec"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/cloud/chunkcodec"
+	"engram-hybrid/internal/store"
 )
 
 func newTestStore(t *testing.T) *store.Store {

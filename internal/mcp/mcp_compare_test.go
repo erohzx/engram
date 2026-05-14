@@ -1,4 +1,4 @@
-package mcp
+﻿package mcp
 
 // Phase G.1 — mem_compare handler tests.
 // REQ-011 | Design §9
@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 	mcppkg "github.com/mark3labs/mcp-go/mcp"
 )
 

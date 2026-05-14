@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"context"
@@ -12,15 +12,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud"
-	"github.com/Gentleman-Programming/engram/internal/cloud/auth"
-	"github.com/Gentleman-Programming/engram/internal/cloud/cloudserver"
-	"github.com/Gentleman-Programming/engram/internal/cloud/cloudstore"
-	"github.com/Gentleman-Programming/engram/internal/cloud/constants"
-	"github.com/Gentleman-Programming/engram/internal/cloud/dashboard"
-	"github.com/Gentleman-Programming/engram/internal/cloud/remote"
-	"github.com/Gentleman-Programming/engram/internal/store"
-	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
+	"engram-hybrid/internal/cloud"
+	"engram-hybrid/internal/cloud/auth"
+	"engram-hybrid/internal/cloud/cloudserver"
+	"engram-hybrid/internal/cloud/cloudstore"
+	"engram-hybrid/internal/cloud/constants"
+	"engram-hybrid/internal/cloud/dashboard"
+	"engram-hybrid/internal/cloud/remote"
+	"engram-hybrid/internal/store"
+	engramsync "engram-hybrid/internal/sync"
 )
 
 type cloudManifestReader interface {

@@ -1,4 +1,4 @@
-package autosync
+﻿package autosync
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 )
 
 // ─── Fakes ───────────────────────────────────────────────────────────────────

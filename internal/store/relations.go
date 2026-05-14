@@ -697,6 +697,7 @@ func (s *Store) JudgeRelation(p JudgeRelationParams) (*Relation, error) {
 // validateCrossProjectGuard checks whether sourceID and targetID belong to the
 // same project. It returns ErrCrossProjectRelation when they are in different
 // projects. Both empty is allowed (observation may be missing locally — REQ-011).
+// Global observations (project IS NULL or scope = 'global') can relate with any observation.
 // This function is shared by JudgeRelation and JudgeBySemantic.
 func validateCrossProjectGuard(tx *sql.Tx, sourceID, targetID string) error {
 	var srcProject, tgtProject string
@@ -706,6 +707,19 @@ func validateCrossProjectGuard(tx *sql.Tx, sourceID, targetID string) error {
 	_ = tx.QueryRow(
 		`SELECT ifnull(project,'') FROM observations WHERE sync_id = ?`, targetID,
 	).Scan(&tgtProject)
+
+	// Global observations (project IS NULL or scope='global') can relate with anything.
+	var srcGlobal, tgtGlobal int
+	_ = tx.QueryRow(
+		`SELECT COUNT(*) FROM observations WHERE sync_id = ? AND (project IS NULL OR project = '' OR scope = 'global')`, sourceID,
+	).Scan(&srcGlobal)
+	_ = tx.QueryRow(
+		`SELECT COUNT(*) FROM observations WHERE sync_id = ? AND (project IS NULL OR project = '' OR scope = 'global')`, targetID,
+	).Scan(&tgtGlobal)
+
+	if srcGlobal > 0 || tgtGlobal > 0 {
+		return nil
+	}
 
 	if srcProject != "" && tgtProject != "" && srcProject != tgtProject {
 		return ErrCrossProjectRelation

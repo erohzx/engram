@@ -1,4 +1,4 @@
-// Package setup handles agent plugin installation.
+﻿// Package setup handles agent plugin installation.
 //
 //   - OpenCode: copies embedded plugin file to ~/.config/opencode/plugins/
 //     (patching ENGRAM_BIN to bake in the absolute binary path as a final
@@ -23,7 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Gentleman-Programming/engram/internal/mcp"
+	"engram-hybrid/internal/mcp"
 )
 
 var (

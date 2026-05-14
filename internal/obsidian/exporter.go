@@ -1,4 +1,4 @@
-package obsidian
+﻿package obsidian
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 )
 
 // ExportConfig holds all CLI flags for the obsidian-export command.

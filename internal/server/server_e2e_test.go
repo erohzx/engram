@@ -1,4 +1,4 @@
-//go:build e2e
+﻿//go:build e2e
 
 package server
 
@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 )
 
 func newE2EServer(t *testing.T) (*store.Store, *httptest.Server) {

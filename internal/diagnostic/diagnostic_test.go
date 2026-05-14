@@ -1,4 +1,4 @@
-package diagnostic
+﻿package diagnostic
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 )
 
 func newDiagnosticTestStore(t *testing.T) *store.Store {

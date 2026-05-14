@@ -1,12 +1,12 @@
-package main
+﻿package main
 
 import (
 	"context"
 	"errors"
 	"os"
 
-	"github.com/Gentleman-Programming/engram/internal/llm"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/llm"
+	"engram-hybrid/internal/store"
 )
 
 // ─── agentRunnerFactory default ───────────────────────────────────────────────

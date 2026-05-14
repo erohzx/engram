@@ -1,12 +1,12 @@
-package main
+﻿package main
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/autosync"
-	engramsrv "github.com/Gentleman-Programming/engram/internal/server"
+	"engram-hybrid/internal/cloud/autosync"
+	engramsrv "engram-hybrid/internal/server"
 )
 
 // fakeStatusProvider implements server.SyncStatusProvider for fallback tests.

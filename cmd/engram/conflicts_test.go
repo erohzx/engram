@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 // conflicts_test.go — CLI tests for `engram conflicts` sub-commands.
 // Follows strict TDD RED → GREEN → REFACTOR.
@@ -17,8 +17,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
-	versioncheck "github.com/Gentleman-Programming/engram/internal/version"
+	"engram-hybrid/internal/store"
+	versioncheck "engram-hybrid/internal/version"
 	_ "modernc.org/sqlite"
 )
 

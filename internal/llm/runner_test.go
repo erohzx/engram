@@ -1,11 +1,11 @@
-package llm_test
+﻿package llm_test
 
 import (
 	"context"
 	"errors"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/llm"
+	"engram-hybrid/internal/llm"
 )
 
 // fakeRunner is a compile-time check that a concrete struct satisfying

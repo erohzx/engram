@@ -1,10 +1,10 @@
-package obsidian
+﻿package obsidian
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 )
 
 func strPtr(s string) *string { return &s }

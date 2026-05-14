@@ -1,12 +1,12 @@
-package tui
+﻿package tui
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/setup"
-	"github.com/Gentleman-Programming/engram/internal/store"
-	"github.com/Gentleman-Programming/engram/internal/version"
+	"engram-hybrid/internal/setup"
+	"engram-hybrid/internal/store"
+	"engram-hybrid/internal/version"
 )
 
 func TestTruncateStr(t *testing.T) {

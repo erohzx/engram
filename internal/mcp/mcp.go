@@ -1,4 +1,4 @@
-// Package mcp implements the Model Context Protocol server for Engram.
+﻿// Package mcp implements the Model Context Protocol server for Engram.
 //
 // This exposes memory tools via MCP stdio transport so ANY agent
 // (OpenCode, Claude Code, Cursor, Windsurf, etc.) can use Engram's
@@ -18,14 +18,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/diagnostic"
-	projectpkg "github.com/Gentleman-Programming/engram/internal/project"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/diagnostic"
+	projectpkg "engram-hybrid/internal/project"
+	"engram-hybrid/internal/store"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -251,7 +252,7 @@ func registerTools(srv *server.MCPServer, s *store.Store, cfg MCPConfig, allowli
 	if shouldRegister("mem_search", allowlist) {
 		srv.AddTool(
 			mcp.NewTool("mem_search",
-				mcp.WithDescription("Search your persistent memory across all sessions. Use this to find past decisions, bugs fixed, patterns used, files changed, or any context from previous coding sessions."),
+				mcp.WithDescription("Search your persistent memory across all sessions. Use this to find past decisions, bugs fixed, patterns used, files changed, or any context from previous coding sessions. Set hybrid=true to combine BM25 keyword + semantic vector search."),
 				mcp.WithTitleAnnotation("Search Memory"),
 				mcp.WithReadOnlyHintAnnotation(true),
 				mcp.WithDestructiveHintAnnotation(false),
@@ -272,6 +273,12 @@ func registerTools(srv *server.MCPServer, s *store.Store, cfg MCPConfig, allowli
 				),
 				mcp.WithNumber("limit",
 					mcp.Description("Max results (default: 10, max: 20)"),
+				),
+				mcp.WithBoolean("hybrid",
+					mcp.Description("When true, combine BM25 + semantic vector search using Reciprocal Rank Fusion. Requires Qdrant + Ollama to be running."),
+				),
+				mcp.WithBoolean("include_global",
+					mcp.Description("When true, include global memories (scope=global) in results alongside project memories. Default: false."),
 				),
 			),
 			handleSearch(s, cfg, activity),
@@ -851,6 +858,172 @@ ERROR: Returns IsError=true if IDs are unknown, relation is invalid, or cross-pr
 			handleCompare(s, activity),
 		)
 	}
+
+	// ─── mem_global_save (profile: agent) ───────────────────────────────
+	if shouldRegister("mem_global_save", allowlist) {
+		srv.AddTool(
+			mcp.NewTool("mem_global_save",
+				mcp.WithDescription("Save a memory to global scope. Global memories are accessible from ALL projects and sessions. Use for cross-project knowledge, coding standards, tech stack decisions, and recurring patterns."),
+				mcp.WithTitleAnnotation("Save Global Memory"),
+				mcp.WithReadOnlyHintAnnotation(false),
+				mcp.WithDestructiveHintAnnotation(false),
+				mcp.WithIdempotentHintAnnotation(false),
+				mcp.WithOpenWorldHintAnnotation(false),
+				mcp.WithString("title",
+					mcp.Required(),
+					mcp.Description("Short, searchable title"),
+				),
+				mcp.WithString("content",
+					mcp.Required(),
+					mcp.Description("Structured content using **What**, **Why**, **Where**, **Learned** format"),
+				),
+				mcp.WithString("type",
+					mcp.Description("Category: decision, architecture, bugfix, pattern, principle, config (default: manual)"),
+				),
+			),
+			queuedWriteHandler(writeQueue, handleGlobalSave(s)),
+		)
+	}
+
+	// ─── mem_global_search (profile: agent) ─────────────────────────────
+	if shouldRegister("mem_global_search", allowlist) {
+		srv.AddTool(
+			mcp.NewTool("mem_global_search",
+				mcp.WithDescription("Search only global memories. These are project-independent memories shared across all projects."),
+				mcp.WithTitleAnnotation("Search Global Memory"),
+				mcp.WithReadOnlyHintAnnotation(true),
+				mcp.WithDestructiveHintAnnotation(false),
+				mcp.WithIdempotentHintAnnotation(true),
+				mcp.WithOpenWorldHintAnnotation(false),
+				mcp.WithString("query",
+					mcp.Required(),
+					mcp.Description("Search query text"),
+				),
+				mcp.WithString("type",
+					mcp.Description("Filter by observation type"),
+				),
+				mcp.WithNumber("limit",
+					mcp.Description("Maximum results to return (default: 10)"),
+				),
+			),
+			handleGlobalSearch(s),
+		)
+	}
+
+	// ─── mem_global_update (profile: admin) ─────────────────────────────
+	if shouldRegister("mem_global_update", allowlist) {
+		srv.AddTool(
+			mcp.NewTool("mem_global_update",
+				mcp.WithDescription("Update an existing global memory by its ID. Only provided fields are changed."),
+				mcp.WithTitleAnnotation("Update Global Memory"),
+				mcp.WithReadOnlyHintAnnotation(false),
+				mcp.WithDestructiveHintAnnotation(false),
+				mcp.WithIdempotentHintAnnotation(false),
+				mcp.WithOpenWorldHintAnnotation(false),
+				mcp.WithNumber("id",
+					mcp.Required(),
+					mcp.Description("Observation ID to update"),
+				),
+				mcp.WithString("title",
+					mcp.Description("New title (optional)"),
+				),
+				mcp.WithString("content",
+					mcp.Description("New content (optional)"),
+				),
+			),
+			queuedWriteHandler(writeQueue, handleGlobalUpdate(s)),
+		)
+	}
+
+	// ─── mem_search_hybrid (profile: agent) ─────────────────────────────
+	if shouldRegister("mem_search_hybrid", allowlist) {
+		srv.AddTool(
+			mcp.NewTool("mem_search_hybrid",
+				mcp.WithDescription("Search memories using hybrid BM25 + semantic (vector) search. Combines keyword and meaning for best results using Reciprocal Rank Fusion."),
+				mcp.WithTitleAnnotation("Hybrid Memory Search"),
+				mcp.WithReadOnlyHintAnnotation(true),
+				mcp.WithDestructiveHintAnnotation(false),
+				mcp.WithIdempotentHintAnnotation(true),
+				mcp.WithOpenWorldHintAnnotation(false),
+				mcp.WithString("query",
+					mcp.Required(),
+					mcp.Description("Search query text"),
+				),
+				mcp.WithString("type",
+					mcp.Description("Filter by observation type (bugfix, decision, architecture, etc.)"),
+				),
+				mcp.WithString("project",
+					mcp.Description("Filter by project name"),
+				),
+				mcp.WithString("scope",
+					mcp.Description("Filter by scope: project, personal, or global"),
+				),
+				mcp.WithNumber("limit",
+					mcp.Description("Maximum number of results to return"),
+				),
+			),
+			handleSearchHybrid(s, activity),
+		)
+	}
+
+	// ─── mem_vector_search (profile: agent) ─────────────────────────────
+	if shouldRegister("mem_vector_search", allowlist) {
+		srv.AddTool(
+			mcp.NewTool("mem_vector_search",
+				mcp.WithDescription("Search memories using semantic (vector) similarity only. Good for finding conceptually related memories that don't share keywords."),
+				mcp.WithTitleAnnotation("Vector Memory Search"),
+				mcp.WithReadOnlyHintAnnotation(true),
+				mcp.WithDestructiveHintAnnotation(false),
+				mcp.WithIdempotentHintAnnotation(true),
+				mcp.WithOpenWorldHintAnnotation(false),
+				mcp.WithString("query",
+					mcp.Required(),
+					mcp.Description("Search query text"),
+				),
+				mcp.WithString("type",
+					mcp.Description("Filter by observation type"),
+				),
+				mcp.WithString("project",
+					mcp.Description("Filter by project name"),
+				),
+				mcp.WithString("scope",
+					mcp.Description("Filter by scope: project, personal, or global"),
+				),
+				mcp.WithNumber("limit",
+					mcp.Description("Maximum number of results to return"),
+				),
+			),
+			handleVectorSearch(s, activity),
+		)
+	}
+
+	// ─── mem_compact (profile: admin, deferred) ─────────────────────────
+	if shouldRegister("mem_compact", allowlist) {
+		srv.AddTool(
+			mcp.NewTool("mem_compact",
+				mcp.WithDescription("Compact old memories by summarizing groups of related observations. When a group exceeds the minimum size threshold, creates a single summary entry. This reduces context size while preserving knowledge. Superseded observations remain searchable but are marked so they don't appear in normal searches."),
+				mcp.WithDeferLoading(true),
+				mcp.WithTitleAnnotation("Compact Memories"),
+				mcp.WithReadOnlyHintAnnotation(false),
+				mcp.WithDestructiveHintAnnotation(true),
+				mcp.WithIdempotentHintAnnotation(false),
+				mcp.WithOpenWorldHintAnnotation(false),
+				mcp.WithNumber("min_group_size",
+					mcp.Description("Minimum number of related observations to trigger compaction (default: 3)"),
+				),
+				mcp.WithNumber("max_age_days",
+					mcp.Description("Only consider observations older than N days (default: 30)"),
+				),
+				mcp.WithString("type",
+					mcp.Description("Filter by memory type before compacting (e.g. bugfix, decision)"),
+				),
+				mcp.WithString("project",
+					mcp.Description("Filter by project name"),
+				),
+			),
+			queuedWriteHandler(writeQueue, handleCompact(s)),
+		)
+	}
 }
 
 // ─── Tool Handlers ───────────────────────────────────────────────────────────
@@ -889,6 +1062,7 @@ func handleSearch(s *store.Store, cfg MCPConfig, activity *SessionActivity) serv
 		projectOverride, _ := req.GetArguments()["project"].(string)
 		scope, _ := req.GetArguments()["scope"].(string)
 		limit := intArg(req, "limit", 10)
+		includeGlobal := boolArg(req, "include_global", false)
 
 		// Resolve project: validate override or auto-detect (REQ-310, REQ-311)
 		detRes, err := resolveReadProject(s, projectOverride)
@@ -909,12 +1083,24 @@ func handleSearch(s *store.Store, cfg MCPConfig, activity *SessionActivity) serv
 		sessionID := defaultSessionID(project)
 		activity.RecordToolCall(sessionID)
 
-		results, err := s.Search(query, store.SearchOptions{
-			Type:    typ,
-			Project: project,
-			Scope:   scope,
-			Limit:   limit,
-		})
+		var results []store.SearchResult
+		if boolArg(req, "hybrid", false) && s.IsVectorEnabled() {
+			results, err = s.SearchHybrid(query, store.SearchOptions{
+				Type:           typ,
+				Project:        project,
+				Scope:          scope,
+				Limit:          limit,
+				IncludeGlobal:  includeGlobal,
+			})
+		} else {
+			results, err = s.Search(query, store.SearchOptions{
+				Type:           typ,
+				Project:        project,
+				Scope:          scope,
+				Limit:          limit,
+				IncludeGlobal:  includeGlobal,
+			})
+		}
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Search error: %s. Try simpler keywords.", err)), nil
 		}
@@ -1017,176 +1203,245 @@ func handleSearch(s *store.Store, cfg MCPConfig, activity *SessionActivity) serv
 	}
 }
 
-func handleSave(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
+func handleSearchHybrid(s *store.Store, activity *SessionActivity) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		query, _ := req.GetArguments()["query"].(string)
+		typ, _ := req.GetArguments()["type"].(string)
+		projectOverride, _ := req.GetArguments()["project"].(string)
+		scope, _ := req.GetArguments()["scope"].(string)
+		limit := intArg(req, "limit", 10)
+
+		detRes, err := resolveReadProject(s, projectOverride)
+		if err != nil {
+			var upe *unknownProjectError
+			if errors.As(err, &upe) {
+				return errorWithMeta("unknown_project",
+					fmt.Sprintf("Project %q not found in store", upe.Name),
+					upe.AvailableProjects,
+				), nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("Project resolution failed: %s", err)), nil
+		}
+		project := detRes.Project
+		project, _ = store.NormalizeProject(project)
+
+		sessionID := defaultSessionID(project)
+		activity.RecordToolCall(sessionID)
+
+		if !s.IsVectorEnabled() {
+			return mcp.NewToolResultError("Vector search not enabled. Configure Qdrant URL and Ollama URL."), nil
+		}
+
+		results, err := s.SearchHybrid(query, store.SearchOptions{
+			Type:    typ,
+			Project: project,
+			Scope:   scope,
+			Limit:   limit,
+		})
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Hybrid search error: %s", err)), nil
+		}
+
+		if len(results) == 0 {
+			return respondWithProject(detRes, fmt.Sprintf("No memories found for: %q", query), nil), nil
+		}
+
+		var b strings.Builder
+		fmt.Fprintf(&b, "Found %d memories (hybrid BM25 + vector):\n\n", len(results))
+		for i, r := range results {
+			projectDisplay := ""
+			if r.Project != nil {
+				projectDisplay = fmt.Sprintf(" | project: %s", *r.Project)
+			}
+			preview := truncate(r.Content, 300)
+			if len(r.Content) > 300 {
+				preview += " [preview]"
+			}
+			fmt.Fprintf(&b, "[%d] #%d (%s) — %s\n    %s%s | scope: %s | rrf_score: %.4f\n\n",
+				i+1, r.ID, r.Type, r.Title,
+				preview,
+				projectDisplay, r.Scope, r.Rank)
+		}
+
+		return respondWithProject(detRes, b.String(), nil), nil
+	}
+}
+
+func handleVectorSearch(s *store.Store, activity *SessionActivity) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		query, _ := req.GetArguments()["query"].(string)
+		typ, _ := req.GetArguments()["type"].(string)
+		projectOverride, _ := req.GetArguments()["project"].(string)
+		scope, _ := req.GetArguments()["scope"].(string)
+		limit := intArg(req, "limit", 10)
+
+		detRes, err := resolveReadProject(s, projectOverride)
+		if err != nil {
+			var upe *unknownProjectError
+			if errors.As(err, &upe) {
+				return errorWithMeta("unknown_project",
+					fmt.Sprintf("Project %q not found in store", upe.Name),
+					upe.AvailableProjects,
+				), nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("Project resolution failed: %s", err)), nil
+		}
+		project := detRes.Project
+		project, _ = store.NormalizeProject(project)
+
+		sessionID := defaultSessionID(project)
+		activity.RecordToolCall(sessionID)
+
+		if !s.IsVectorEnabled() {
+			return mcp.NewToolResultError("Vector search not enabled. Configure Qdrant URL and Ollama URL."), nil
+		}
+
+		results, err := s.VectorSearch(query, store.SearchOptions{
+			Type:    typ,
+			Project: project,
+			Scope:   scope,
+			Limit:   limit,
+		})
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Vector search error: %s", err)), nil
+		}
+
+		if len(results) == 0 {
+			return respondWithProject(detRes, fmt.Sprintf("No memories found for: %q", query), nil), nil
+		}
+
+		var b strings.Builder
+		fmt.Fprintf(&b, "Found %d memories (semantic vector search):\n\n", len(results))
+		for i, r := range results {
+			projectDisplay := ""
+			if r.Project != nil {
+				projectDisplay = fmt.Sprintf(" | project: %s", *r.Project)
+			}
+			preview := truncate(r.Content, 300)
+			if len(r.Content) > 300 {
+				preview += " [preview]"
+			}
+			fmt.Fprintf(&b, "[%d] #%d (%s) — %s\n    %s%s | scope: %s | score: %.4f\n\n",
+				i+1, r.ID, r.Type, r.Title,
+				preview,
+				projectDisplay, r.Scope, r.Rank)
+		}
+
+		return respondWithProject(detRes, b.String(), nil), nil
+	}
+}
+
+func handleGlobalSave(s *store.Store) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		title, _ := req.GetArguments()["title"].(string)
 		content, _ := req.GetArguments()["content"].(string)
 		typ, _ := req.GetArguments()["type"].(string)
-		sessionID, _ := req.GetArguments()["session_id"].(string)
-		scope, _ := req.GetArguments()["scope"].(string)
-		topicKey, _ := req.GetArguments()["topic_key"].(string)
-		projectChoice, _ := req.GetArguments()["project"].(string)
-		_, explicitProjectProvided := req.GetArguments()["project"]
-		projectChoiceReason, _ := req.GetArguments()["project_choice_reason"].(string)
-		recoveryToken, _ := req.GetArguments()["recovery_token"].(string)
-		capturePrompt := boolArg(req, "capture_prompt", true)
-		recoverySessionID := sessionID
-		if strings.TrimSpace(recoverySessionID) == "" {
-			recoverySessionID = defaultSessionID("")
-		}
-		validateRecoveryToken := func(res projectpkg.DetectionResult, choice string) (bool, bool) {
-			if strings.TrimSpace(recoveryToken) == "" {
-				return false, false
-			}
-			return true, activity.ValidateAmbiguousProjectRecoveryToken(recoverySessionID, recoveryToken, strings.TrimSpace(choice), res.AvailableProjects, res.Path)
-		}
 
-		// Resolve write project using the full MCP precedence: explicit request,
-		// existing session association, repo config/directory detection, then cwd fallback.
-		detRes, err := resolveSaveWriteProject(s, projectChoice, explicitProjectProvided, projectChoiceReason, sessionID, validateRecoveryToken)
-		if err != nil {
-			return writeProjectErrorResult(activity, recoverySessionID, detRes, err), nil
+		if strings.TrimSpace(title) == "" {
+			return mcp.NewToolResultError("title is required"), nil
 		}
-		project := detRes.Project
-
-		// Normalize project name and capture warning
-		normalized, normWarning := store.NormalizeProject(project)
-		project = normalized
-
+		if strings.TrimSpace(content) == "" {
+			return mcp.NewToolResultError("content is required"), nil
+		}
 		if typ == "" {
 			typ = "manual"
 		}
-		if sessionID == "" {
-			sessionID = defaultSessionID(project)
-		}
-		suggestedTopicKey := suggestTopicKey(typ, title, content)
 
-		// Check for similar existing projects (only when this project has no existing observations)
-		var similarWarning string
-		if project != "" {
-			existingNames, _ := s.ListProjectNames()
-			isNew := true
-			for _, e := range existingNames {
-				if e == project {
-					isNew = false
-					break
-				}
-			}
-			if isNew && len(existingNames) > 0 {
-				matches := projectpkg.FindSimilar(project, existingNames, 3)
-				if len(matches) > 0 {
-					bestMatch := matches[0].Name
-					obsCount, _ := s.CountObservationsForProject(bestMatch)
-					similarWarning = fmt.Sprintf("⚠️ Project %q has no memories. Similar project found: %q (%d memories). Consider using that name instead.", project, bestMatch, obsCount)
-				}
-			}
+		sessionID := "global-manual-save"
+		if err := s.CreateSession(sessionID, "", currentWorkingDirectory()); err != nil {
+			log.Printf("[mcp] global_save: create session: %v (non-fatal)", err)
 		}
 
-		// Ensure the implicit MCP session exists with the current working directory.
-		_ = ensureImplicitSessionWithCWD(s, sessionID, project)
-
-		truncated := len(content) > s.MaxObservationLength()
-
-		savedID, err := s.AddObservation(store.AddObservationParams{
+		id, err := s.AddObservation(store.AddObservationParams{
 			SessionID: sessionID,
 			Type:      typ,
 			Title:     title,
 			Content:   content,
-			Project:   project,
-			Scope:     scope,
-			TopicKey:  topicKey,
+			Scope:     "global",
 		})
 		if err != nil {
-			return mcp.NewToolResultError("Failed to save: " + err.Error()), nil
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to save global memory: %s", err)), nil
 		}
 
-		if capturePrompt && activity != nil {
-			if prompt, ok := activity.CurrentPrompt(sessionID, project); ok {
-				if _, _, promptErr := addPromptIfMissing(s, store.AddPromptParams{
-					SessionID: sessionID,
-					Content:   prompt,
-					Project:   project,
-				}); promptErr != nil {
-					fmt.Fprintf(os.Stderr, "engram: auto prompt capture error (non-fatal): %v\n", promptErr)
-				}
+		return mcp.NewToolResultText(fmt.Sprintf("Global memory saved successfully.\n\nID: %d\nTitle: %s\nType: %s\nScope: global\n\nSaved globally — accessible from all projects.", id, title, typ)), nil
+	}
+}
+
+func handleGlobalSearch(s *store.Store) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		query, _ := req.GetArguments()["query"].(string)
+		typ, _ := req.GetArguments()["type"].(string)
+		limit := intArg(req, "limit", 10)
+
+		if strings.TrimSpace(query) == "" {
+			return mcp.NewToolResultError("query is required"), nil
+		}
+
+		results, err := s.Search(query, store.SearchOptions{
+			Type:          typ,
+			Scope:         "global",
+			Limit:         limit,
+			IncludeGlobal: true,
+		})
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Search error: %s", err)), nil
+		}
+
+		if len(results) == 0 {
+			return mcp.NewToolResultText(fmt.Sprintf("No global memories found for: %q", query)), nil
+		}
+
+		var b strings.Builder
+		fmt.Fprintf(&b, "Found %d global memories:\n\n", len(results))
+		for i, r := range results {
+			preview := truncate(r.Content, 300)
+			if len(r.Content) > 300 {
+				preview += " [preview]"
 			}
+			fmt.Fprintf(&b, "[%d] #%d (%s) — %s\n    %s\n    %s | scope: %s\n\n",
+				i+1, r.ID, r.Type, r.Title,
+				preview,
+				r.CreatedAt, r.Scope)
 		}
 
-		if activity != nil {
-			activity.RecordSave(sessionID)
+		return mcp.NewToolResultText(b.String()), nil
+	}
+}
+
+func handleGlobalUpdate(s *store.Store) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		idVal, ok := req.GetArguments()["id"]
+		if !ok {
+			return mcp.NewToolResultError("id is required"), nil
 		}
 
-		msg := fmt.Sprintf("Memory saved: %q (%s)", title, typ)
-		if topicKey == "" && suggestedTopicKey != "" {
-			msg += fmt.Sprintf("\nSuggested topic_key: %s", suggestedTopicKey)
+		idFloat, ok := idVal.(float64)
+		if !ok {
+			return mcp.NewToolResultError("id must be a number"), nil
 		}
-		if truncated {
-			msg += fmt.Sprintf("\n⚠ WARNING: Content was truncated from %d to %d chars. Consider splitting into smaller observations.", len(content), s.MaxObservationLength())
-		}
-		if normWarning != "" {
-			msg += "\n" + normWarning
-		}
-		if similarWarning != "" {
-			msg += "\n" + similarWarning
+		id := int64(idFloat)
+
+		title, _ := req.GetArguments()["title"].(string)
+		content, _ := req.GetArguments()["content"].(string)
+
+		if strings.TrimSpace(title) == "" && strings.TrimSpace(content) == "" {
+			return mcp.NewToolResultError("provide at least title or content"), nil
 		}
 
-		// Post-transaction conflict candidate detection (REQ-001).
-		// Errors are logged and swallowed — detection failure never fails the save.
-		extra := map[string]any{}
-		// Build CandidateOptions, forwarding any MCPConfig overrides.
-		// nil fields mean "use store defaults"; explicit pointer values override.
-		candOpts := store.CandidateOptions{
-			Project:   project,
-			Scope:     scope,
-			BM25Floor: cfg.BM25Floor, // nil → store default (-2.0); explicit value overrides
+		params := store.UpdateObservationParams{}
+		if strings.TrimSpace(title) != "" {
+			params.Title = &title
 		}
-		if cfg.Limit != nil {
-			candOpts.Limit = *cfg.Limit
-		}
-		candidates, candErr := s.FindCandidates(savedID, candOpts)
-		if candErr != nil {
-			// Log only — do not fail the save.
-			fmt.Fprintf(os.Stderr, "engram: FindCandidates error (non-fatal): %v\n", candErr)
+		if strings.TrimSpace(content) != "" {
+			params.Content = &content
 		}
 
-		// Fetch the saved observation's sync_id for the envelope (REQ-001).
-		var savedSyncID string
-		if obs, obsErr := s.GetObservation(savedID); obsErr == nil {
-			savedSyncID = obs.SyncID
-			extra["id"] = savedID
-			extra["sync_id"] = savedSyncID
+		obs, err := s.UpdateObservation(id, params)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to update global memory: %s", err)), nil
 		}
 
-		if len(candidates) > 0 {
-			extra["judgment_required"] = true
-			extra["judgment_status"] = "pending"
-			extra["judgment_id"] = candidates[0].JudgmentID // first candidate's rel sync_id (design convenience)
-
-			candList := make([]map[string]any, 0, len(candidates))
-			for _, c := range candidates {
-				entry := map[string]any{
-					"id":          c.ID,
-					"sync_id":     c.SyncID,
-					"title":       c.Title,
-					"type":        c.Type,
-					"score":       c.Score,
-					"judgment_id": c.JudgmentID,
-				}
-				if c.TopicKey != nil {
-					entry["topic_key"] = *c.TopicKey
-				}
-				candList = append(candList, entry)
-			}
-			extra["candidates"] = candList
-
-			msg += fmt.Sprintf("\nCONFLICT REVIEW PENDING — %d candidate(s); use mem_judge to record verdicts.", len(candidates))
-		} else {
-			extra["judgment_required"] = false
-		}
-
-		// Update detRes to reflect normalized project for envelope accuracy
-		detRes.Project = project
-		return respondWithProject(detRes, msg, extra), nil
+		return mcp.NewToolResultText(fmt.Sprintf("Global memory updated successfully.\n\nID: %d\nTitle: %s\nScope: %s\nUpdated at: %s", obs.ID, obs.Title, obs.Scope, obs.UpdatedAt)), nil
 	}
 }
 
@@ -1279,6 +1534,171 @@ func handleDelete(s *store.Store) server.ToolHandlerFunc {
 			mode = "permanently deleted"
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Memory #%d %s", id, mode)), nil
+	}
+}
+
+func handleSave(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		title, _ := req.GetArguments()["title"].(string)
+		content, _ := req.GetArguments()["content"].(string)
+		typ, _ := req.GetArguments()["type"].(string)
+		sessionID, _ := req.GetArguments()["session_id"].(string)
+		scope, _ := req.GetArguments()["scope"].(string)
+		topicKey, _ := req.GetArguments()["topic_key"].(string)
+		projectChoice, _ := req.GetArguments()["project"].(string)
+		_, explicitProjectProvided := req.GetArguments()["project"]
+		projectChoiceReason, _ := req.GetArguments()["project_choice_reason"].(string)
+		recoveryToken, _ := req.GetArguments()["recovery_token"].(string)
+		capturePrompt := boolArg(req, "capture_prompt", true)
+		recoverySessionID := sessionID
+		if strings.TrimSpace(recoverySessionID) == "" {
+			recoverySessionID = defaultSessionID("")
+		}
+		validateRecoveryToken := func(res projectpkg.DetectionResult, choice string) (bool, bool) {
+			if strings.TrimSpace(recoveryToken) == "" {
+				return false, false
+			}
+			return true, activity.ValidateAmbiguousProjectRecoveryToken(recoverySessionID, recoveryToken, strings.TrimSpace(choice), res.AvailableProjects, res.Path)
+		}
+
+		detRes, err := resolveSaveWriteProject(s, projectChoice, explicitProjectProvided, projectChoiceReason, sessionID, validateRecoveryToken)
+		if err != nil {
+			return writeProjectErrorResult(activity, recoverySessionID, detRes, err), nil
+		}
+		project := detRes.Project
+
+		normalized, normWarning := store.NormalizeProject(project)
+		project = normalized
+
+		if typ == "" {
+			typ = "manual"
+		}
+		if sessionID == "" {
+			sessionID = defaultSessionID(project)
+		}
+		suggestedTopicKey := suggestTopicKey(typ, title, content)
+
+		var similarWarning string
+		if project != "" {
+			existingNames, _ := s.ListProjectNames()
+			isNew := true
+			for _, e := range existingNames {
+				if e == project {
+					isNew = false
+					break
+				}
+			}
+			if isNew && len(existingNames) > 0 {
+				matches := projectpkg.FindSimilar(project, existingNames, 3)
+				if len(matches) > 0 {
+					bestMatch := matches[0].Name
+					obsCount, _ := s.CountObservationsForProject(bestMatch)
+					similarWarning = fmt.Sprintf("Project %q has no memories. Similar project found: %q (%d memories). Consider using that name instead.", project, bestMatch, obsCount)
+				}
+			}
+		}
+
+		_ = ensureImplicitSessionWithCWD(s, sessionID, project)
+
+		truncated := len(content) > s.MaxObservationLength()
+
+		params := store.AddObservationParams{
+			SessionID: sessionID,
+			Type:      typ,
+			Title:     title,
+			Content:   content,
+			Scope:     scope,
+			TopicKey:  topicKey,
+		}
+		if strings.ToLower(strings.TrimSpace(scope)) != "global" {
+			params.Project = project
+		}
+
+		savedID, err := s.AddObservation(params)
+		if err != nil {
+			return mcp.NewToolResultError("Failed to save: " + err.Error()), nil
+		}
+
+		if capturePrompt && activity != nil {
+			if prompt, ok := activity.CurrentPrompt(sessionID, project); ok {
+				if _, _, promptErr := addPromptIfMissing(s, store.AddPromptParams{
+					SessionID: sessionID,
+					Content:   prompt,
+					Project:   project,
+				}); promptErr != nil {
+					fmt.Fprintf(os.Stderr, "engram: auto prompt capture error (non-fatal): %v\n", promptErr)
+				}
+			}
+		}
+
+		if activity != nil {
+			activity.RecordSave(sessionID)
+		}
+
+		msg := fmt.Sprintf("Memory saved: %q (%s)", title, typ)
+		if topicKey == "" && suggestedTopicKey != "" {
+			msg += fmt.Sprintf("\nSuggested topic_key: %s", suggestedTopicKey)
+		}
+		if truncated {
+			msg += fmt.Sprintf("\nContent was truncated from %d to %d chars.", len(content), s.MaxObservationLength())
+		}
+		if normWarning != "" {
+			msg += "\n" + normWarning
+		}
+		if similarWarning != "" {
+			msg += "\n" + similarWarning
+		}
+
+		extra := map[string]any{}
+		candOpts := store.CandidateOptions{
+			Project:   project,
+			Scope:     scope,
+			BM25Floor: cfg.BM25Floor,
+		}
+		if cfg.Limit != nil {
+			candOpts.Limit = *cfg.Limit
+		}
+		candidates, candErr := s.FindCandidates(savedID, candOpts)
+		if candErr != nil {
+			fmt.Fprintf(os.Stderr, "engram: FindCandidates error (non-fatal): %v\n", candErr)
+		}
+
+		var savedSyncID string
+		if obs, obsErr := s.GetObservation(savedID); obsErr == nil {
+			savedSyncID = obs.SyncID
+			extra["id"] = savedID
+			extra["sync_id"] = savedSyncID
+		}
+
+		if len(candidates) > 0 {
+			extra["judgment_required"] = true
+			extra["judgment_status"] = "pending"
+			extra["judgment_id"] = candidates[0].JudgmentID
+
+			candList := make([]map[string]any, 0, len(candidates))
+			for _, c := range candidates {
+				entry := map[string]any{
+					"id":          c.ID,
+					"sync_id":     c.SyncID,
+					"title":       c.Title,
+					"type":        c.Type,
+					"score":       c.Score,
+					"judgment_id": c.JudgmentID,
+				}
+				if c.TopicKey != nil {
+					entry["topic_key"] = *c.TopicKey
+				}
+				candList = append(candList, entry)
+			}
+			extra["candidates"] = candList
+
+			msg += fmt.Sprintf("\nCONFLICT REVIEW PENDING — %d candidate(s); use mem_judge to record verdicts.", len(candidates))
+		} else {
+			extra["judgment_required"] = false
+		}
+
+		detRes.Project = project
+		return respondWithProject(detRes, msg, extra), nil
 	}
 }
 
@@ -2585,6 +3005,104 @@ func errorWithMeta(code, msg string, availableProjects []string) *mcp.CallToolRe
 // jsonMarshal marshals v to JSON. Named to allow test injection if needed.
 func jsonMarshal(v any) ([]byte, error) {
 	return json.Marshal(v)
+}
+
+// ─── handleCompact ──────────────────────────────────────────────────────────
+
+func handleCompact(s *store.Store) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		minGroupSize := intArg(req, "min_group_size", 3)
+		maxAgeDays := intArg(req, "max_age_days", 30)
+		typ, _ := req.GetArguments()["type"].(string)
+		projectOverride, _ := req.GetArguments()["project"].(string)
+
+		maxAge := time.Duration(maxAgeDays) * 24 * time.Hour
+		candidates, err := s.FindCompactionCandidates(maxAge, minGroupSize)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Find compaction candidates: %s", err)), nil
+		}
+
+		if len(candidates) == 0 {
+			return mcp.NewToolResultText("No observations found that are eligible for compaction. Try reducing min_group_size or max_age_days."), nil
+		}
+
+		// Filter by type if specified
+		if typ != "" {
+			filtered := candidates[:0]
+			for _, c := range candidates {
+				if c.Type == typ {
+					filtered = append(filtered, c)
+				}
+			}
+			candidates = filtered
+		}
+
+		// Filter by project if specified
+		if projectOverride != "" {
+			filtered := candidates[:0]
+			for _, c := range candidates {
+				if c.Project != nil && *c.Project == projectOverride {
+					filtered = append(filtered, c)
+				} else if c.Project == nil && projectOverride == "" {
+					filtered = append(filtered, c)
+				}
+			}
+			candidates = filtered
+		}
+
+		if len(candidates) == 0 {
+			return mcp.NewToolResultText("No observations match the specified filters for compaction."), nil
+		}
+
+		var compacted int
+		var summaries []string
+
+		for _, group := range candidates {
+			if len(group.SourceIDs) < minGroupSize {
+				continue
+			}
+
+			// Generate summary title from type and count
+			summaryTitle := fmt.Sprintf("%s: %d related memories compacted", group.Type, len(group.SourceIDs))
+			if group.Project != nil && *group.Project != "" {
+				summaryTitle = fmt.Sprintf("%s [%s]: %d related memories compacted", group.Type, *group.Project, len(group.SourceIDs))
+			}
+
+			// Generate summary content by listing source observation IDs
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("Summarized %d related %s observations:\n", len(group.SourceIDs), group.Type))
+			for i, id := range group.SourceIDs {
+				sb.WriteString(fmt.Sprintf("  - Source #%d\n", id))
+				if i >= 9 {
+					sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(group.SourceIDs)-i-1))
+					break
+				}
+			}
+
+			summaryContent := sb.String()
+
+			if err := s.ExecuteCompaction(group, summaryTitle, summaryContent); err != nil {
+				log.Printf("engram: compaction failed for group type=%s project=%v: %v", group.Type, group.Project, err)
+				continue
+			}
+
+			compacted++
+			summaries = append(summaries, summaryTitle)
+		}
+
+		if compacted == 0 {
+			return mcp.NewToolResultText("No groups met the compaction criteria. Adjust filters and try again."), nil
+		}
+
+		var b strings.Builder
+		fmt.Fprintf(&b, "Compacted %d group(s):\n\n", compacted)
+		for _, s := range summaries {
+			fmt.Fprintf(&b, "- %s\n", s)
+		}
+		fmt.Fprintf(&b, "\nSuperseded observations remain searchable but won't appear in normal results.\n")
+
+		return mcp.NewToolResultText(b.String()), nil
+	}
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

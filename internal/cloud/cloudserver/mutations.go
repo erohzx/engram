@@ -1,4 +1,4 @@
-package cloudserver
+﻿package cloudserver
 
 import (
 	"context"
@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/cloudstore"
-	"github.com/Gentleman-Programming/engram/internal/cloud/constants"
-	"github.com/Gentleman-Programming/engram/internal/project"
+	"engram-hybrid/internal/cloud/cloudstore"
+	"engram-hybrid/internal/cloud/constants"
+	"engram-hybrid/internal/project"
 )
 
 // ─── Types ────────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-package mcp
+﻿package mcp
 
 import (
 	"context"
@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/project"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/project"
+	"engram-hybrid/internal/store"
 	mcppkg "github.com/mark3labs/mcp-go/mcp"
 )
 

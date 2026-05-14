@@ -1,4 +1,4 @@
-package remote
+﻿package remote
 
 import (
 	"encoding/json"
@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/chunkcodec"
-	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
+	"engram-hybrid/internal/cloud/chunkcodec"
+	engramsync "engram-hybrid/internal/sync"
 )
 
 func TestReadManifestReturnsHTTPStatusErrorForAuthAndPolicyFailures(t *testing.T) {

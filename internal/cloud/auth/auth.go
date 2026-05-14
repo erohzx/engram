@@ -1,4 +1,4 @@
-package auth
+﻿package auth
 
 import (
 	"crypto/hmac"
@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/cloudstore"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/cloud/cloudstore"
+	"engram-hybrid/internal/store"
 )
 
 var ErrSecretTooShort = errors.New("jwt secret must be at least 32 bytes")

@@ -1,4 +1,4 @@
-package cloudstore
+﻿package cloudstore
 
 import (
 	"context"
@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud"
-	"github.com/Gentleman-Programming/engram/internal/cloud/chunkcodec"
-	"github.com/Gentleman-Programming/engram/internal/store"
-	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
+	"engram-hybrid/internal/cloud"
+	"engram-hybrid/internal/cloud/chunkcodec"
+	"engram-hybrid/internal/store"
+	engramsync "engram-hybrid/internal/sync"
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )

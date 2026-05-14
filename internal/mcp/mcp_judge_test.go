@@ -1,4 +1,4 @@
-package mcp
+﻿package mcp
 
 // Phase D.5 — mem_judge handler tests.
 // REQ-003 | Design §6
@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 	mcppkg "github.com/mark3labs/mcp-go/mcp"
 )
 

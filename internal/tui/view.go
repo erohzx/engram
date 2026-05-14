@@ -1,11 +1,11 @@
-package tui
+﻿package tui
 
 import (
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/version"
+	"engram-hybrid/internal/version"
 	"github.com/charmbracelet/lipgloss"
 )
 

@@ -1,4 +1,4 @@
-package dashboard
+﻿package dashboard
 
 //go:generate go tool templ generate
 
@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/cloudstore"
-	"github.com/Gentleman-Programming/engram/internal/cloud/constants"
+	"engram-hybrid/internal/cloud/cloudstore"
+	"engram-hybrid/internal/cloud/constants"
 	"github.com/a-h/templ"
 )
 

@@ -1,10 +1,10 @@
-package diagnostic
+﻿package diagnostic
 
 import (
 	"context"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 )
 
 func TestBuildRepairPlanDirectoryMismatchUsesTrustedEvidence(t *testing.T) {

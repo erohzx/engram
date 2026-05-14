@@ -1,4 +1,4 @@
-package dashboard
+﻿package dashboard
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/cloudstore"
+	"engram-hybrid/internal/cloud/cloudstore"
 	nethtml "golang.org/x/net/html"
 )
 

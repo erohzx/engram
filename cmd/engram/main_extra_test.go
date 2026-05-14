@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"context"
@@ -16,17 +16,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud"
-	"github.com/Gentleman-Programming/engram/internal/cloud/autosync"
-	"github.com/Gentleman-Programming/engram/internal/cloud/constants"
-	"github.com/Gentleman-Programming/engram/internal/cloud/remote"
-	"github.com/Gentleman-Programming/engram/internal/mcp"
-	engramsrv "github.com/Gentleman-Programming/engram/internal/server"
-	"github.com/Gentleman-Programming/engram/internal/setup"
-	"github.com/Gentleman-Programming/engram/internal/store"
-	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
-	"github.com/Gentleman-Programming/engram/internal/tui"
-	versioncheck "github.com/Gentleman-Programming/engram/internal/version"
+	"engram-hybrid/internal/cloud"
+	"engram-hybrid/internal/cloud/autosync"
+	"engram-hybrid/internal/cloud/constants"
+	"engram-hybrid/internal/cloud/remote"
+	"engram-hybrid/internal/mcp"
+	engramsrv "engram-hybrid/internal/server"
+	"engram-hybrid/internal/setup"
+	"engram-hybrid/internal/store"
+	engramsync "engram-hybrid/internal/sync"
+	"engram-hybrid/internal/tui"
+	versioncheck "engram-hybrid/internal/version"
 
 	tea "github.com/charmbracelet/bubbletea"
 	mcpserver "github.com/mark3labs/mcp-go/server"

@@ -1,10 +1,10 @@
-package chunkcodec
+﻿package chunkcodec
 
 import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 )
 
 func TestCanonicalizeForProjectPreservesMutationMetadataPayloadFields(t *testing.T) {

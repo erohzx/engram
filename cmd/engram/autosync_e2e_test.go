@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"bytes"
@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/autosync"
-	"github.com/Gentleman-Programming/engram/internal/cloud/remote"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/cloud/autosync"
+	"engram-hybrid/internal/cloud/remote"
+	"engram-hybrid/internal/store"
 	_ "modernc.org/sqlite"
 )
 

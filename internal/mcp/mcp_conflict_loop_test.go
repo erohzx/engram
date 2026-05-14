@@ -1,4 +1,4 @@
-package mcp
+﻿package mcp
 
 // Phase G — Integration tests: full save→judge→search lifecycle.
 // REQ-001 | REQ-002 | REQ-003 | REQ-004 | REQ-007 | REQ-009 | REQ-010
@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 	mcppkg "github.com/mark3labs/mcp-go/mcp"
 )
 

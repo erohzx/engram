@@ -1,10 +1,10 @@
-package tui
+﻿package tui
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 )
 
 func TestViewObservationDetailWrapping(t *testing.T) {

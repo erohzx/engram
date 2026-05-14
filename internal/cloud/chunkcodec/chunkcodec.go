@@ -1,4 +1,4 @@
-package chunkcodec
+﻿package chunkcodec
 
 import (
 	"crypto/sha256"
@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 )
 
 func ChunkID(payload []byte) string {

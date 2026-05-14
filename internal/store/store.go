@@ -6,6 +6,7 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -17,9 +18,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"engram-hybrid/internal/vector"
 
 	sqlite "modernc.org/sqlite"
 )
@@ -151,10 +155,11 @@ type TimelineResult struct {
 }
 
 type SearchOptions struct {
-	Type    string `json:"type,omitempty"`
-	Project string `json:"project,omitempty"`
-	Scope   string `json:"scope,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
+	Type           string `json:"type,omitempty"`
+	Project        string `json:"project,omitempty"`
+	Scope          string `json:"scope,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
+	IncludeGlobal  bool   `json:"include_global,omitempty"`
 }
 
 type AddObservationParams struct {
@@ -415,13 +420,31 @@ type ExportData struct {
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
+// ─── Vector Configuration ────────────────────────────────────────────────────
+
+// Config holds the database configuration for the Engram store.
 type Config struct {
 	DataDir              string
 	MaxObservationLength int
 	MaxContextResults    int
 	MaxSearchResults     int
 	DedupeWindow         time.Duration
+
+	// Vector search configuration (Phase 1: HYBRID)
+	QdrantURL        string // e.g. "http://localhost:6333", empty = disabled
+	QdrantAPIKey     string // optional API key for Qdrant
+	QdrantCollection string // e.g. "memory-global" or "engram_observations"
+	OllamaURL        string // e.g. "http://localhost:11434", empty = disabled
+	EmbeddingModel   string // e.g. "nomic-embed-text:latest", defaults to "nomic-embed-text:latest" if empty
 }
+
+// IsVectorEnabled returns true when both Qdrant and Ollama URLs are configured.
+func (c Config) IsVectorEnabled() bool {
+	return c.QdrantURL != "" && c.OllamaURL != ""
+}
+
+// DefaultEmbeddingModel is the default model name for vector embeddings.
+const DefaultEmbeddingModel = "nomic-embed-text:latest"
 
 func DefaultConfig() (Config, error) {
 	home, err := os.UserHomeDir()
@@ -434,6 +457,9 @@ func DefaultConfig() (Config, error) {
 		MaxContextResults:    20,
 		MaxSearchResults:     20,
 		DedupeWindow:         15 * time.Minute,
+		QdrantURL:            "http://localhost:6333",
+		OllamaURL:            "http://localhost:11434",
+		EmbeddingModel:       DefaultEmbeddingModel,
 	}, nil
 }
 
@@ -457,10 +483,28 @@ func (s *Store) MaxObservationLength() int {
 
 // ─── Store ───────────────────────────────────────────────────────────────────
 
+// embeddingJob represents a request to generate and store a vector embedding.
+type embeddingJob struct {
+	observationID int64
+	title         string
+	content       string
+	resultCh      chan<- embeddingResult
+}
+
+// embeddingResult holds the outcome of an embedding generation job.
+type embeddingResult struct {
+	vector []float32
+	err    error
+}
+
 type Store struct {
-	db    *sql.DB
-	cfg   Config
-	hooks storeHooks
+	db              *sql.DB
+	cfg             Config
+	hooks           storeHooks
+	qdrant          *vector.Client
+	embedder        vector.Embedder
+	embeddingCh     chan embeddingJob
+	embeddingDone   chan struct{}
 }
 
 type execer interface {
@@ -612,6 +656,33 @@ func New(cfg Config) (*Store, error) {
 		return nil, fmt.Errorf("engram: repair enrolled sync journal: %w", err)
 	}
 
+	if cfg.IsVectorEnabled() && s.cfg.EmbeddingModel == "" {
+		s.cfg.EmbeddingModel = DefaultEmbeddingModel
+	}
+
+	if cfg.IsVectorEnabled() {
+		s.qdrant = vector.NewClient(cfg.QdrantURL, cfg.QdrantAPIKey)
+
+		// Set default collection name if not provided.
+		if s.cfg.QdrantCollection == "" {
+			s.cfg.QdrantCollection = "engram_observations"
+		}
+
+		embedder := vector.NewOllamaEmbedder(cfg.OllamaURL, cfg.EmbeddingModel)
+		s.embedder = embedder
+
+		// Auto-create Qdrant collection on startup.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := s.qdrant.CreateCollection(ctx, s.cfg.QdrantCollection, embedder.Dimension(), vector.DistanceCosine); err != nil {
+			log.Printf("engram: qdrant collection init note: %v (will use existing or retry on first upsert)", err)
+		}
+		cancel()
+
+		s.embeddingCh = make(chan embeddingJob, 100)
+		s.embeddingDone = make(chan struct{})
+		go s.embeddingWorker()
+	}
+
 	return s, nil
 }
 
@@ -648,11 +719,168 @@ func newWithoutRepair(cfg Config) (*Store, error) {
 	if err := s.migrate(); err != nil {
 		return nil, fmt.Errorf("engram: migration: %w", err)
 	}
+
+	if cfg.IsVectorEnabled() && s.cfg.EmbeddingModel == "" {
+		s.cfg.EmbeddingModel = DefaultEmbeddingModel
+	}
+
+	if cfg.IsVectorEnabled() {
+		s.qdrant = vector.NewClient(cfg.QdrantURL, cfg.QdrantAPIKey)
+
+		// Set default collection name if not provided.
+		if s.cfg.QdrantCollection == "" {
+			s.cfg.QdrantCollection = "engram_observations"
+		}
+
+		embedder := vector.NewOllamaEmbedder(cfg.OllamaURL, cfg.EmbeddingModel)
+		s.embedder = embedder
+
+		// Auto-create Qdrant collection on startup.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := s.qdrant.CreateCollection(ctx, s.cfg.QdrantCollection, embedder.Dimension(), vector.DistanceCosine); err != nil {
+			log.Printf("engram: qdrant collection init note: %v (will use existing or retry on first upsert)", err)
+		}
+		cancel()
+
+		s.embeddingCh = make(chan embeddingJob, 100)
+		s.embeddingDone = make(chan struct{})
+		go s.embeddingWorker()
+	}
+
 	return s, nil
 }
 
 func (s *Store) Close() error {
+	if s.embeddingCh != nil {
+		close(s.embeddingCh)
+		<-s.embeddingDone
+	}
 	return s.db.Close()
+}
+
+// IsVectorEnabled returns true when vector search is configured.
+func (s *Store) IsVectorEnabled() bool {
+	return s.cfg.IsVectorEnabled() && s.qdrant != nil && s.embedder != nil
+}
+
+// EmbeddingDimension returns the dimension of the embedding model, or 0 if not configured.
+func (s *Store) EmbeddingDimension() int {
+	if s.embedder != nil {
+		return s.embedder.Dimension()
+	}
+	return 0
+}
+
+// ─── Async Embedding Worker (Phase 1: HYBRID) ────────────────────────────────
+
+// embeddingWorker runs in a goroutine and processes embedding jobs from the channel.
+// It never blocks SQLite's single connection by doing all I/O (embedding API calls)
+// outside the database thread.
+func (s *Store) embeddingWorker() {
+	defer close(s.embeddingDone)
+	for job := range s.embeddingCh {
+		resultCh := job.resultCh
+
+		vector, err := s.embedder.Embed(job.title + "\n" + job.content)
+		if err != nil {
+			log.Printf("engram: embedding failed for obs %d: %v", job.observationID, err)
+			select {
+			case resultCh <- embeddingResult{err: fmt.Errorf("embedding failed: %w", err)}:
+			default:
+			}
+			continue
+		}
+
+		if err := s.storeEmbedding(job.observationID, vector); err != nil {
+			log.Printf("engram: failed to store embedding for obs %d: %v", job.observationID, err)
+			select {
+			case resultCh <- embeddingResult{err: fmt.Errorf("store embedding: %w", err)}:
+			default:
+			}
+			continue
+		}
+
+		select {
+		case resultCh <- embeddingResult{vector: vector}:
+		default:
+		}
+	}
+}
+
+// dispatchEmbedding sends an observation to the async embedding pipeline.
+// It is non-blocking: if the channel is full, the job is dropped with a warning.
+func (s *Store) dispatchEmbedding(obsID int64, title, content string) {
+	if s.embedder == nil || s.embeddingCh == nil {
+		return
+	}
+
+	resultCh := make(chan embeddingResult, 1)
+
+	select {
+	case s.embeddingCh <- embeddingJob{
+		observationID: obsID,
+		title:         title,
+		content:       content,
+		resultCh:      resultCh,
+	}:
+		go func() {
+			select {
+			case res := <-resultCh:
+				if res.err != nil {
+					log.Printf("engram: async embedding pipeline error for obs %d: %v", obsID, res.err)
+				}
+			case <-time.After(10 * 0):
+				// Timeout — result already sent via channel or dropped.
+			}
+		}()
+	default:
+		log.Printf("engram: embedding queue full, dropping job for obs %d", obsID)
+	}
+}
+
+// storeEmbedding persists the vector embedding metadata in SQLite and upserts to Qdrant.
+func (s *Store) storeEmbedding(observationID int64, vector []float32) error {
+	// Qdrant point IDs must be unsigned integers or UUID strings.
+	// Use the observation ID directly as an integer point ID.
+	pointID := fmt.Sprintf("%d", observationID)
+
+	// Upsert into Qdrant if client is configured.
+	if s.qdrant != nil && s.cfg.QdrantCollection != "" {
+		// Fetch full metadata from SQLite for Qdrant payload (type, project, scope).
+		var typ, obsProject, obsScope string
+		err := s.db.QueryRow(
+			`SELECT type, ifnull(project,''), scope FROM observations WHERE id = ?`, observationID,
+		).Scan(&typ, &obsProject, &obsScope)
+		if err != nil {
+			typ, obsProject, obsScope = "manual", "", "project"
+		}
+		payload := map[string]any{
+			"observation_id": observationID,
+			"title":          "TODO: title placeholder",
+			"model":          s.cfg.EmbeddingModel,
+			"type":           typ,
+			"project":        obsProject,
+			"scope":          obsScope,
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := s.qdrant.UpsertPoint(ctx, s.cfg.QdrantCollection, observationID, vector, payload); err != nil {
+			log.Printf("engram: qdrant upsert failed for obs %d: %v (embedding still stored locally)", observationID, err)
+		}
+		cancel()
+	}
+
+	_, err := s.execHook(s.db, `
+		INSERT INTO vector_index_meta (observation_id, qdrant_point_id, embedding_status, embedding_model, dimensions, updated_at)
+		VALUES (?, ?, 'done', ?, ?, datetime('now'))
+		ON CONFLICT(observation_id) DO UPDATE SET
+			qdrant_point_id = excluded.qdrant_point_id,
+			embedding_status = excluded.embedding_status,
+			embedding_model = excluded.embedding_model,
+			dimensions = excluded.dimensions,
+			updated_at = datetime('now')
+	`, observationID, pointID, s.cfg.EmbeddingModel, len(vector))
+
+	return err
 }
 
 // ─── Migrations ──────────────────────────────────────────────────────────────
@@ -967,6 +1195,47 @@ func (s *Store) migrate() error {
 		return err
 	}
 
+	// ── Phase 1: HYBRID — vector_index_meta table ────────────────────────
+	if _, err := s.execHook(s.db, `
+		CREATE TABLE IF NOT EXISTS vector_index_meta (
+			id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+			observation_id            INTEGER NOT NULL UNIQUE,
+			qdrant_point_id           TEXT NOT NULL,
+			collection                TEXT NOT NULL DEFAULT 'observations',
+			embedding_status          TEXT NOT NULL DEFAULT 'pending',
+			embedding_model           TEXT,
+			dimensions                INTEGER,
+			created_at                TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at                TEXT NOT NULL DEFAULT (datetime('now')),
+			FOREIGN KEY (observation_id) REFERENCES observations(id) ON DELETE CASCADE
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_vector_idx_obs ON vector_index_meta(observation_id);
+		CREATE INDEX IF NOT EXISTS idx_vector_idx_point ON vector_index_meta(qdrant_point_id);
+		CREATE INDEX IF NOT EXISTS idx_vector_idx_status ON vector_index_meta(embedding_status);
+	`); err != nil {
+		return err
+	}
+
+	// ── Phase 4: HYBRID — memory_compactions table for auto-summarization ──
+	if _, err := s.execHook(s.db, `
+		CREATE TABLE IF NOT EXISTS memory_compactions (
+			id                INTEGER PRIMARY KEY AUTOINCREMENT,
+			source_ids        TEXT    NOT NULL,
+			summary_title     TEXT    NOT NULL,
+			summary_content   TEXT    NOT NULL,
+			type              TEXT    NOT NULL DEFAULT 'compaction',
+			project           TEXT,
+			scope             TEXT    NOT NULL DEFAULT 'project',
+			created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_comp_scope ON memory_compactions(scope, created_at DESC);
+		CREATE INDEX IF NOT EXISTS idx_comp_type ON memory_compactions(type, scope, created_at DESC);
+	`); err != nil {
+		return err
+	}
+
 	// Create triggers to keep FTS in sync (idempotent check)
 	var name string
 	err := s.db.QueryRow(
@@ -998,6 +1267,11 @@ func (s *Store) migrate() error {
 	}
 
 	if err := s.migrateFTSTopicKey(); err != nil {
+		return err
+	}
+
+	// Phase 4: add superseded_at column for compaction tracking
+	if err := s.addColumnIfNotExists("observations", "superseded_at", "TEXT"); err != nil {
 		return err
 	}
 
@@ -1944,7 +2218,7 @@ func (s *Store) AllObservations(project, scope string, limit int) ([]Observation
 		SELECT o.id, ifnull(o.sync_id, '') as sync_id, o.session_id, o.type, o.title, o.content, o.tool_name, o.project,
 		       o.scope, o.topic_key, o.revision_count, o.duplicate_count, o.last_seen_at, o.created_at, o.updated_at, o.deleted_at
 		FROM observations o
-		WHERE o.deleted_at IS NULL
+		WHERE o.deleted_at IS NULL AND o.superseded_at IS NULL
 	`
 	args := []any{}
 
@@ -2121,6 +2395,10 @@ func (s *Store) AddObservation(p AddObservationParams) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+
+	// Phase 1: HYBRID — dispatch async embedding (non-blocking)
+	s.dispatchEmbedding(observationID, title, content)
+
 	return observationID, nil
 }
 
@@ -2136,7 +2414,7 @@ func (s *Store) RecentObservations(project, scope string, limit int) ([]Observat
 		SELECT o.id, ifnull(o.sync_id, '') as sync_id, o.session_id, o.type, o.title, o.content, o.tool_name, o.project,
 		       o.scope, o.topic_key, o.revision_count, o.duplicate_count, o.last_seen_at, o.created_at, o.updated_at, o.deleted_at
 		FROM observations o
-		WHERE o.deleted_at IS NULL
+		WHERE o.deleted_at IS NULL AND o.superseded_at IS NULL
 	`
 	args := []any{}
 
@@ -2579,6 +2857,10 @@ func (s *Store) DeleteObservation(id int64, hardDelete bool) error {
 					return fmt.Errorf("orphan memory_relations after hard-delete: %w", err)
 				}
 			}
+			// Clean up vector index entry for hard-deleted observations.
+			if _, err := s.execHook(tx, `DELETE FROM vector_index_meta WHERE observation_id = ?`, id); err != nil {
+				log.Printf("engram: warning: failed to clean vector index for deleted obs %d: %v", id, err)
+			}
 		} else {
 			if _, err := s.execHook(tx,
 				`UPDATE observations
@@ -2792,6 +3074,9 @@ func (s *Store) Search(query string, opts SearchOptions) ([]SearchResult, error)
 	if opts.Project != "" {
 		sqlQ += " AND o.project = ?"
 		args = append(args, opts.Project)
+	} else if !opts.IncludeGlobal {
+		// Default: exclude global memories when no project filter and IncludeGlobal is false.
+		sqlQ += " AND o.scope != 'global'"
 	}
 
 	if opts.Scope != "" {
@@ -2845,7 +3130,7 @@ func (s *Store) Stats() (*Stats, error) {
 	stats := &Stats{}
 
 	s.db.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&stats.TotalSessions)
-	s.db.QueryRow("SELECT COUNT(*) FROM observations WHERE deleted_at IS NULL").Scan(&stats.TotalObservations)
+	s.db.QueryRow("SELECT COUNT(*) FROM observations WHERE deleted_at IS NULL AND superseded_at IS NULL").Scan(&stats.TotalObservations)
 	s.db.QueryRow("SELECT COUNT(*) FROM user_prompts").Scan(&stats.TotalPrompts)
 
 	rows, err := s.queryItHook(s.db, "SELECT project FROM observations WHERE project IS NOT NULL AND deleted_at IS NULL GROUP BY project ORDER BY MAX(created_at) DESC")
@@ -2911,7 +3196,25 @@ func (s *Store) FormatContext(project, scope string) (string, error) {
 		return "", err
 	}
 
-	if len(sessions) == 0 && len(observations) == 0 && len(prompts) == 0 {
+	// Fetch global memories relevant to the current project context
+	globalMemories, err := s.getRelevantGlobalMemories(project, s.cfg.MaxContextResults/2)
+	if err != nil {
+		// Non-fatal — global memory errors don't block context
+		log.Printf("engram: warning: failed to load global memories: %v", err)
+	}
+
+	// Fetch recent compaction summaries
+	compactions, err := s.GetCompactions("", 5)
+	if err != nil {
+		// Non-fatal — compaction errors don't block context
+		log.Printf("engram: warning: failed to load compaction summaries: %v", err)
+	}
+
+	// Apply type weighting and merge observations with global memories
+	weightedObs := s.applyTypeWeighting(observations, scope)
+	mergedObs := s.mergeObservations(weightedObs, globalMemories, project)
+
+	if len(sessions) == 0 && len(mergedObs) == 0 && len(prompts) == 0 && len(compactions) == 0 {
 		return "", nil
 	}
 
@@ -2931,6 +3234,14 @@ func (s *Store) FormatContext(project, scope string) (string, error) {
 		b.WriteString("\n")
 	}
 
+	if len(compactions) > 0 {
+		b.WriteString("### Consolidated Memories\n")
+		for _, mc := range compactions {
+			fmt.Fprintf(&b, "- **%s** (%d sources compacted)\n", mc.SummaryTitle, len(mc.SourceIDs))
+		}
+		b.WriteString("\n")
+	}
+
 	if len(prompts) > 0 {
 		b.WriteString("### Recent User Prompts\n")
 		for _, p := range prompts {
@@ -2939,9 +3250,9 @@ func (s *Store) FormatContext(project, scope string) (string, error) {
 		b.WriteString("\n")
 	}
 
-	if len(observations) > 0 {
+	if len(mergedObs) > 0 {
 		b.WriteString("### Recent Observations\n")
-		for _, obs := range observations {
+		for _, obs := range mergedObs {
 			fmt.Fprintf(&b, "- [%s] **%s**: %s\n",
 				obs.Type, obs.Title, truncate(obs.Content, 300))
 		}
@@ -2949,6 +3260,119 @@ func (s *Store) FormatContext(project, scope string) (string, error) {
 	}
 
 	return b.String(), nil
+}
+
+// typeWeightMap assigns higher weights to more important memory types.
+var typeWeightMap = map[string]float64{
+	"decision":     5.0,
+	"architecture": 4.0,
+	"pattern":      3.0,
+	"config":       2.0,
+	"learning":     2.0,
+	"discovery":    2.0,
+	"bugfix":       1.5,
+	"manual":       1.0,
+}
+
+// weightedObservation holds an observation with its computed weight for sorting.
+type weightedObservation struct {
+	Observation
+	weight float64
+}
+
+// applyTypeWeighting adds a weight to each observation based on its type, then sorts
+// by weight (descending) and then by creation time (most recent first).
+func (s *Store) applyTypeWeighting(observations []Observation, scope string) []weightedObservation {
+	result := make([]weightedObservation, 0, len(observations))
+	for _, obs := range observations {
+		w, ok := typeWeightMap[obs.Type]
+		if !ok {
+			w = 1.0
+		}
+		// Boost global scope memories when scope filter is global or empty
+		if (scope == "" || scope == "global") && obs.Scope == "global" {
+			w *= 1.5
+		}
+		result = append(result, weightedObservation{obs, w})
+	}
+
+	// Sort by weight descending, then by creation time descending
+	for i := 1; i < len(result); i++ {
+		for j := i; j > 0 && result[j].weight > result[j-1].weight ||
+			(j > 0 && result[j].weight == result[j-1].weight && result[j].Observation.CreatedAt > result[j-1].Observation.CreatedAt); j-- {
+			result[j], result[j-1] = result[j-1], result[j]
+		}
+	}
+
+	return result
+}
+
+// getRelevantGlobalMemories fetches global memories that could be relevant to the current project.
+func (s *Store) getRelevantGlobalMemories(project string, limit int) ([]Observation, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+
+	query := `
+		SELECT id, ifnull(sync_id, '') as sync_id, session_id, type, title, content, tool_name, project,
+		       scope, topic_key, revision_count, duplicate_count, last_seen_at, created_at, updated_at, deleted_at
+		FROM observations
+		WHERE scope = 'global' AND deleted_at IS NULL
+		ORDER BY datetime(created_at) DESC
+		LIMIT ?
+	`
+
+	rows, err := s.queryItHook(s.db, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []Observation
+	for rows.Next() {
+		var obs Observation
+		if err := rows.Scan(
+			&obs.ID, &obs.SyncID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content,
+			&obs.ToolName, &obs.Project, &obs.Scope, &obs.TopicKey, &obs.RevisionCount, &obs.DuplicateCount,
+			&obs.LastSeenAt, &obs.CreatedAt, &obs.UpdatedAt, &obs.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		results = append(results, obs)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+// mergeObservations merges global memories into project observations, deduplicating by title.
+func (s *Store) mergeObservations(weighted []weightedObservation, globals []Observation, project string) []Observation {
+	if len(weighted) == 0 && len(globals) == 0 {
+		return nil
+	}
+
+	// Build a set of existing titles to avoid duplicates when merging globals
+	existing := make(map[string]bool)
+	for _, wo := range weighted {
+		existing[strings.ToLower(wo.Title)] = true
+	}
+
+	// Add global memories that don't duplicate existing content
+	for _, g := range globals {
+		if !existing[strings.ToLower(g.Title)] {
+			weighted = append(weighted, weightedObservation{g, 3.0})
+			existing[strings.ToLower(g.Title)] = true
+		}
+	}
+
+	// Extract just the observations (already sorted by weight)
+	results := make([]Observation, len(weighted))
+	for i, wo := range weighted {
+		results[i] = wo.Observation
+	}
+	return results
 }
 
 // ─── Export / Import ─────────────────────────────────────────────────────────
@@ -3138,11 +3562,227 @@ func (s *Store) Import(data *ExportData) (*ImportResult, error) {
 		result.PromptsImported++
 	}
 
-	if err := s.commitHook(tx); err != nil {
+if err := s.commitHook(tx); err != nil {
 		return nil, fmt.Errorf("import: commit: %w", err)
 	}
 
 	return result, nil
+}
+
+// hybridQuery is the internal representation of a combined FTS5 + vector search.
+type hybridQuery struct {
+	query   string
+	opts    SearchOptions
+	limit   int
+}
+
+// SearchHybrid combines FTS5 BM25 results with Qdrant vector similarity results
+// using Reciprocal Rank Fusion (RRF). It returns merged results sorted by combined score.
+// If vector search is not configured, it falls back to pure FTS5 search.
+func (s *Store) SearchHybrid(query string, opts SearchOptions) ([]SearchResult, error) {
+	if !s.IsVectorEnabled() {
+		return s.Search(query, opts)
+	}
+
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > s.cfg.MaxSearchResults {
+		limit = s.cfg.MaxSearchResults
+	}
+
+	// Step 1: Run FTS5 BM25 search
+	ftsResults, err := s.Search(query, opts)
+	if err != nil {
+		return nil, fmt.Errorf("hybrid search FTS5: %w", err)
+	}
+
+	// Step 2: Generate embedding for the query
+	embedding, err := s.embedder.Embed(query)
+	if err != nil {
+		// If embedding fails, fall back to pure FTS5
+		log.Printf("engram: hybrid search warning: embedding failed, falling back to FTS5: %v", err)
+		return ftsResults, nil
+	}
+
+	// Step 3: Build Qdrant filter from options
+	qdrantFilter := buildQdrantFilter(opts)
+
+	// Step 4: Search Qdrant with the query vector
+	qdrantLimit := limit * 3 // fetch more to allow merging
+	qdrantResults, err := s.qdrant.SearchPoints(context.Background(), s.cfg.QdrantCollection, embedding, qdrantLimit, qdrantFilter)
+	if err != nil {
+		log.Printf("engram: hybrid search warning: Qdrant search failed, falling back to FTS5: %v", err)
+		return ftsResults, nil
+	}
+
+	// Step 5: Combine results using RRF
+	return combineRRF(ftsResults, qdrantResults, limit, func(id int64) (*Observation, error) { return s.GetObservation(id) })
+}
+
+// VectorSearch performs pure vector/semantic similarity search via Qdrant.
+// If vector search is not configured, it returns an empty result (no error).
+func (s *Store) VectorSearch(query string, opts SearchOptions) ([]SearchResult, error) {
+	if !s.IsVectorEnabled() {
+		return []SearchResult{}, nil
+	}
+
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > s.cfg.MaxSearchResults {
+		limit = s.cfg.MaxSearchResults
+	}
+
+	// Generate embedding for the query
+	embedding, err := s.embedder.Embed(query)
+	if err != nil {
+		return nil, fmt.Errorf("vector search embedding: %w", err)
+	}
+
+	// Build Qdrant filter from options
+	qdrantFilter := buildQdrantFilter(opts)
+
+	// Search Qdrant
+	qdrantResults, err := s.qdrant.SearchPoints(context.Background(), s.cfg.QdrantCollection, embedding, limit, qdrantFilter)
+	if err != nil {
+		return nil, fmt.Errorf("vector search Qdrant: %w", err)
+	}
+
+	// Convert ScoredPoint results to SearchResult by fetching full observations
+	results := make([]SearchResult, 0, len(qdrantResults))
+	for _, sp := range qdrantResults {
+		obsIDStr := sp.ID
+		var obsID int64
+		if _, err := fmt.Sscanf(obsIDStr, "%d", &obsID); err != nil {
+			continue
+		}
+		obs, err := s.GetObservation(obsID)
+		if err != nil {
+			// Observation might have been deleted — skip
+			continue
+		}
+		results = append(results, SearchResult{
+			Observation: *obs,
+			Rank:        sp.Score,
+		})
+	}
+
+	return results, nil
+}
+
+// buildQdrantFilter constructs a Qdrant filter from SearchOptions.
+// It creates must-conditions for project, scope, and type.
+func buildQdrantFilter(opts SearchOptions) map[string]any {
+	var conditions []map[string]any
+
+	if opts.Scope != "" {
+		conditions = append(conditions, map[string]any{
+			"field": "scope",
+			"match": map[string]any{
+				"value": opts.Scope,
+			},
+		})
+	}
+	if opts.Type != "" {
+		conditions = append(conditions, map[string]any{
+			"field": "type",
+			"match": map[string]any{
+				"value": opts.Type,
+			},
+		})
+	}
+
+	if opts.Project != "" {
+		conditions = append(conditions, map[string]any{
+			"field": "project",
+			"match": map[string]any{
+				"value": opts.Project,
+			},
+		})
+	}
+
+	if len(conditions) == 0 {
+		return nil
+	}
+
+	return map[string]any{
+		"must": conditions,
+	}
+}
+
+// combineRRF merges FTS5 BM25 results with Qdrant vector results using
+// Reciprocal Rank Fusion (RRF). Formula: score(d) = Σ 1/(k + rank_i(d))
+// where k=60 is the RRF constant.
+func combineRRF(ftsResults []SearchResult, qdrantResults []vector.ScoredPoint, limit int, getObs func(int64) (*Observation, error)) ([]SearchResult, error) {
+	const rrfK = 60.0
+
+	// Map observation ID → combined score
+	scoreMap := make(map[int64]float64)
+	idToObs := make(map[int64]SearchResult)
+
+	// Rank FTS5 results (1-indexed)
+	for i, r := range ftsResults {
+		rank := float64(i + 1)
+		score := 1.0 / (rrfK + rank)
+		scoreMap[r.ID] += score
+		idToObs[r.ID] = r
+	}
+
+	// Rank Qdrant results (1-indexed) and merge
+	for i, sp := range qdrantResults {
+		rank := float64(i + 1)
+		score := 1.0 / (rrfK + rank)
+
+		// Parse Qdrant point ID (stored as string "id") to int64
+		var obsID int64
+		if _, err := fmt.Sscanf(sp.ID, "%d", &obsID); err != nil {
+			continue
+		}
+
+		scoreMap[obsID] += score
+
+		// Only add to idToObs if not already present
+		if _, exists := idToObs[obsID]; !exists {
+			obs, err := getObs(obsID)
+			if err != nil {
+				continue
+			}
+			idToObs[obsID] = SearchResult{
+				Observation: *obs,
+				Rank:        sp.Score,
+			}
+		}
+	}
+
+	// Sort by combined score descending
+	type scoredID struct {
+		id    int64
+		score float64
+	}
+	scored := make([]scoredID, 0, len(scoreMap))
+	for id, score := range scoreMap {
+		scored = append(scored, scoredID{id: id, score: score})
+	}
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
+	})
+
+	// Build final results
+	results := make([]SearchResult, 0, limit)
+	for _, sc := range scored {
+		if len(results) >= limit {
+			break
+		}
+		if r, ok := idToObs[sc.id]; ok {
+			r.Rank = sc.score // replace BM25 rank with RRF score
+			results = append(results, r)
+		}
+	}
+
+	return results, nil
 }
 
 type ImportResult struct {
@@ -5652,6 +6292,9 @@ func normalizeScope(scope string) string {
 	v := strings.TrimSpace(strings.ToLower(scope))
 	if v == "personal" {
 		return "personal"
+	}
+	if v == "global" {
+		return "global"
 	}
 	return "project"
 }

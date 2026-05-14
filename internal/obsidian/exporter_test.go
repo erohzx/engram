@@ -1,9 +1,9 @@
-package obsidian
+﻿package obsidian
 
 import (
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 )
 
 // ─── Mock StoreReader ─────────────────────────────────────────────────────────

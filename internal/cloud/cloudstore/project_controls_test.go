@@ -1,4 +1,4 @@
-package cloudstore
+﻿package cloudstore
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud"
+	"engram-hybrid/internal/cloud"
 )
 
 // openTestCloudStore opens a CloudStore using CLOUDSTORE_TEST_DSN env var.

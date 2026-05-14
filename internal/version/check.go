@@ -1,4 +1,4 @@
-// Package version checks for newer engram releases on GitHub.
+﻿// Package version checks for newer engram releases on GitHub.
 package version
 
 import (
@@ -152,9 +152,9 @@ func updateInstructions() string {
 	case "darwin":
 		return "  brew update && brew upgrade engram"
 	case "linux":
-		return "  brew update && brew upgrade engram\n  or: go install github.com/Gentleman-Programming/engram/cmd/engram@latest"
+		return "  brew update && brew upgrade engram\n  or: go install engram-hybrid/cmd/engram@latest"
 	default:
-		return "  go install github.com/Gentleman-Programming/engram/cmd/engram@latest\n  or: https://github.com/Gentleman-Programming/engram/releases/latest"
+		return "  go install engram-hybrid/cmd/engram@latest\n  or: https://engram-hybrid/releases/latest"
 	}
 }
 

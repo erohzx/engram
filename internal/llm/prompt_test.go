@@ -1,10 +1,10 @@
-package llm_test
+﻿package llm_test
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/llm"
+	"engram-hybrid/internal/llm"
 )
 
 // ─── A.3 tests ────────────────────────────────────────────────────────────────

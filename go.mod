@@ -1,4 +1,4 @@
-module github.com/Gentleman-Programming/engram
+module engram-hybrid
 
 go 1.25.10
 

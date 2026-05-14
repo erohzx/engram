@@ -1,4 +1,4 @@
-package project
+﻿package project
 
 import (
 	"errors"
@@ -44,7 +44,7 @@ func TestExtractRepoName(t *testing.T) {
 		},
 		{
 			name: "HTTPS org with dots",
-			url:  "https://github.com/Gentleman-Programming/engram.git",
+			url:  "https://engram-hybrid.git",
 			want: "engram",
 		},
 		{
@@ -109,7 +109,7 @@ func TestDetectProject_GitRemote_HTTPS(t *testing.T) {
 	initGit(t, dir)
 
 	cmd := exec.Command("git", "-C", dir, "remote", "add", "origin",
-		"https://github.com/Gentleman-Programming/engram.git")
+		"https://engram-hybrid.git")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}

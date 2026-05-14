@@ -1,4 +1,4 @@
-package remote
+﻿package remote
 
 import (
 	"bytes"
@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/chunkcodec"
-	"github.com/Gentleman-Programming/engram/internal/store"
-	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
+	"engram-hybrid/internal/cloud/chunkcodec"
+	"engram-hybrid/internal/store"
+	engramsync "engram-hybrid/internal/sync"
 )
 
 type RemoteTransport struct {

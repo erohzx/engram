@@ -1,4 +1,4 @@
-// Package server provides the HTTP API for Engram.
+﻿// Package server provides the HTTP API for Engram.
 //
 // This is how external clients (OpenCode plugin, Claude Code hooks,
 // any agent) communicate with the memory engine. Simple JSON REST API.
@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 )
 
 var loadServerStats = func(s *store.Store) (*store.Stats, error) {

@@ -1,4 +1,4 @@
-package cloudserver
+﻿package cloudserver
 
 import (
 	"bytes"
@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	cloudauth "github.com/Gentleman-Programming/engram/internal/cloud/auth"
-	"github.com/Gentleman-Programming/engram/internal/cloud/cloudstore"
-	"github.com/Gentleman-Programming/engram/internal/cloud/dashboard"
-	"github.com/Gentleman-Programming/engram/internal/store"
-	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
+	cloudauth "engram-hybrid/internal/cloud/auth"
+	"engram-hybrid/internal/cloud/cloudstore"
+	"engram-hybrid/internal/cloud/dashboard"
+	"engram-hybrid/internal/store"
+	engramsync "engram-hybrid/internal/sync"
 )
 
 type fakeStore struct {

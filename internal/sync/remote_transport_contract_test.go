@@ -1,12 +1,12 @@
-package sync_test
+﻿package sync_test
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/remote"
-	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
+	"engram-hybrid/internal/cloud/remote"
+	engramsync "engram-hybrid/internal/sync"
 )
 
 func TestRemoteTransportImplementsTransportContract(t *testing.T) {

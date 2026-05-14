@@ -1,4 +1,4 @@
-package dashboard
+﻿package dashboard
 
 import (
 	"fmt"
@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/cloudstore"
+	"engram-hybrid/internal/cloud/cloudstore"
 )
 
 // ─── Pagination ─────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"io"
@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/mcp"
-	"github.com/Gentleman-Programming/engram/internal/obsidian"
-	"github.com/Gentleman-Programming/engram/internal/setup"
-	"github.com/Gentleman-Programming/engram/internal/store"
-	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
-	versioncheck "github.com/Gentleman-Programming/engram/internal/version"
+	"engram-hybrid/internal/mcp"
+	"engram-hybrid/internal/obsidian"
+	"engram-hybrid/internal/setup"
+	"engram-hybrid/internal/store"
+	engramsync "engram-hybrid/internal/sync"
+	versioncheck "engram-hybrid/internal/version"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 

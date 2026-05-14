@@ -1,4 +1,4 @@
-// Engram — Persistent memory for AI coding agents.
+﻿// Engram — Persistent memory for AI coding agents.
 //
 // Usage:
 //
@@ -27,20 +27,20 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/autosync"
-	"github.com/Gentleman-Programming/engram/internal/cloud/constants"
-	"github.com/Gentleman-Programming/engram/internal/cloud/remote"
-	"github.com/Gentleman-Programming/engram/internal/cloud/syncguidance"
-	"github.com/Gentleman-Programming/engram/internal/diagnostic"
-	"github.com/Gentleman-Programming/engram/internal/mcp"
-	"github.com/Gentleman-Programming/engram/internal/obsidian"
-	"github.com/Gentleman-Programming/engram/internal/project"
-	"github.com/Gentleman-Programming/engram/internal/server"
-	"github.com/Gentleman-Programming/engram/internal/setup"
-	"github.com/Gentleman-Programming/engram/internal/store"
-	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
-	"github.com/Gentleman-Programming/engram/internal/tui"
-	versioncheck "github.com/Gentleman-Programming/engram/internal/version"
+	"engram-hybrid/internal/cloud/autosync"
+	"engram-hybrid/internal/cloud/constants"
+	"engram-hybrid/internal/cloud/remote"
+	"engram-hybrid/internal/cloud/syncguidance"
+	"engram-hybrid/internal/diagnostic"
+	"engram-hybrid/internal/mcp"
+	"engram-hybrid/internal/obsidian"
+	"engram-hybrid/internal/project"
+	"engram-hybrid/internal/server"
+	"engram-hybrid/internal/setup"
+	"engram-hybrid/internal/store"
+	engramsync "engram-hybrid/internal/sync"
+	"engram-hybrid/internal/tui"
+	versioncheck "engram-hybrid/internal/version"
 
 	tea "github.com/charmbracelet/bubbletea"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -624,6 +624,14 @@ func main() {
 		cmdTUI(cfg)
 	case "search":
 		cmdSearch(cfg)
+	case "search_hybrid":
+		cmdSearchHybrid(cfg)
+	case "vector_search":
+		cmdVectorSearch(cfg)
+	case "global_save":
+		cmdGlobalSave(cfg)
+	case "global_search":
+		cmdGlobalSearch(cfg)
 	case "save":
 		cmdSave(cfg)
 	case "timeline":
@@ -652,6 +660,8 @@ func main() {
 		cmdSetup()
 	case "version", "--version", "-v":
 		fmt.Printf("engram %s\n", version)
+	case "compact":
+		cmdCompact(cfg)
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -965,6 +975,208 @@ func cmdSearch(cfg store.Config) {
 	}
 }
 
+func cmdSearchHybrid(cfg store.Config) {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "usage: engram search_hybrid <query> [--type TYPE] [--project PROJECT] [--scope SCOPE] [--limit N]")
+		exitFunc(1)
+	}
+
+	var queryParts []string
+	opts := store.SearchOptions{Limit: 10}
+
+	for i := 2; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--type":
+			if i+1 < len(os.Args) { opts.Type = os.Args[i+1]; i++ }
+		case "--project":
+			if i+1 < len(os.Args) { opts.Project = os.Args[i+1]; i++ }
+		case "--limit":
+			if i+1 < len(os.Args) {
+				if n, err := strconv.Atoi(os.Args[i+1]); err == nil { opts.Limit = n }; i++
+			}
+		case "--scope":
+			if i+1 < len(os.Args) { opts.Scope = os.Args[i+1]; i++ }
+		default:
+			queryParts = append(queryParts, os.Args[i])
+		}
+	}
+
+	query := strings.Join(queryParts, " ")
+	if query == "" { fmt.Fprintln(os.Stderr, "error: search query is required"); exitFunc(1) }
+
+	s, err := storeNew(cfg)
+	if err != nil { fatal(err); return }
+	defer s.Close()
+
+	results, err := s.SearchHybrid(query, opts)
+	if err != nil { fatal(err); return }
+
+	if len(results) == 0 { fmt.Printf("No memories found for: %q\n", query); return }
+
+	fmt.Printf("Found %d memories (hybrid search):\n\n", len(results))
+	for i, r := range results {
+		project := ""
+		if r.Project != nil { project = fmt.Sprintf(" | project: %s", *r.Project) }
+		fmt.Printf("[%d] #%d (%s) — %s\n    %s\n    %s%s | scope: %s\n\n",
+			i+1, r.ID, r.Type, r.Title, truncate(r.Content, 300), r.CreatedAt, project, r.Scope)
+	}
+}
+
+func cmdVectorSearch(cfg store.Config) {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "usage: engram vector_search <query> [--type TYPE] [--project PROJECT] [--scope SCOPE] [--limit N]")
+		exitFunc(1)
+	}
+
+	var queryParts []string
+	opts := store.SearchOptions{Limit: 10}
+
+	for i := 2; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--type":
+			if i+1 < len(os.Args) { opts.Type = os.Args[i+1]; i++ }
+		case "--project":
+			if i+1 < len(os.Args) { opts.Project = os.Args[i+1]; i++ }
+		case "--limit":
+			if i+1 < len(os.Args) {
+				if n, err := strconv.Atoi(os.Args[i+1]); err == nil { opts.Limit = n }; i++
+			}
+		case "--scope":
+			if i+1 < len(os.Args) { opts.Scope = os.Args[i+1]; i++ }
+		default:
+			queryParts = append(queryParts, os.Args[i])
+		}
+	}
+
+	query := strings.Join(queryParts, " ")
+	if query == "" { fmt.Fprintln(os.Stderr, "error: search query is required"); exitFunc(1) }
+
+	s, err := storeNew(cfg)
+	if err != nil { fatal(err); return }
+	defer s.Close()
+
+	results, err := s.VectorSearch(query, opts)
+	if err != nil { fatal(err); return }
+
+	if len(results) == 0 { fmt.Printf("No memories found for: %q\n", query); return }
+
+	fmt.Printf("Found %d memories (semantic search):\n\n", len(results))
+	for i, r := range results {
+		project := ""
+		if r.Project != nil { project = fmt.Sprintf(" | project: %s", *r.Project) }
+		fmt.Printf("[%d] #%d (%s) — %s\n    %s\n    %s%s | scope: %s\n\n",
+			i+1, r.ID, r.Type, r.Title, truncate(r.Content, 300), r.CreatedAt, project, r.Scope)
+	}
+}
+
+func cmdGlobalSave(cfg store.Config) {
+	if len(os.Args) < 4 {
+		fmt.Fprintln(os.Stderr, "usage: engram global_save <title> <content> [--type TYPE]")
+		exitFunc(1)
+	}
+
+	title := os.Args[2]
+	content := os.Args[3]
+	typ := "manual"
+
+	for i := 4; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--type":
+			if i+1 < len(os.Args) {
+				typ = os.Args[i+1]
+				i++
+			}
+		}
+	}
+
+	s, err := storeNew(cfg)
+	if err != nil {
+		fatal(err)
+	}
+	defer s.Close()
+
+	sessionID := "global-manual-save"
+	if err := s.CreateSession(sessionID, "", "."); err != nil {
+		log.Printf("[engram] global_save: create session: %v (non-fatal)", err)
+	}
+
+	id, err := s.AddObservation(store.AddObservationParams{
+		SessionID: sessionID,
+		Type:      typ,
+		Title:     title,
+		Content:   content,
+		Scope:     "global",
+	})
+	if err != nil {
+		fatal(err)
+	}
+
+	fmt.Printf("Global memory saved: #%d %q (%s)\nScope: global (accessible from all projects)\n", id, title, typ)
+}
+
+func cmdGlobalSearch(cfg store.Config) {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "usage: engram global_search <query> [--type TYPE] [--limit N]")
+		exitFunc(1)
+	}
+
+	var queryParts []string
+	opts := store.SearchOptions{Limit: 10}
+
+	for i := 2; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--type":
+			if i+1 < len(os.Args) {
+				opts.Type = os.Args[i+1]
+				i++
+			}
+		case "--limit":
+			if i+1 < len(os.Args) {
+				if n, err := strconv.Atoi(os.Args[i+1]); err == nil {
+					opts.Limit = n
+				}
+				i++
+			}
+		default:
+			queryParts = append(queryParts, os.Args[i])
+		}
+	}
+
+	query := strings.Join(queryParts, " ")
+	if query == "" {
+		fmt.Fprintln(os.Stderr, "error: search query is required")
+		exitFunc(1)
+	}
+
+	opts.Scope = "global"
+	opts.IncludeGlobal = true
+
+	s, err := storeNew(cfg)
+	if err != nil {
+		fatal(err)
+	}
+	defer s.Close()
+
+	results, err := s.Search(query, opts)
+	if err != nil {
+		fatal(err)
+		return
+	}
+
+	if len(results) == 0 {
+		fmt.Printf("No global memories found for: %q\n", query)
+		return
+	}
+
+	fmt.Printf("Found %d global memories:\n\n", len(results))
+	for i, r := range results {
+		fmt.Printf("[%d] #%d (%s) — %s\n    %s\n    %s | scope: %s\n\n",
+			i+1, r.ID, r.Type, r.Title,
+			truncate(r.Content, 300),
+			r.CreatedAt, r.Scope)
+	}
+}
+
 func cmdSave(cfg store.Config) {
 	if len(os.Args) < 4 {
 		fmt.Fprintln(os.Stderr, "usage: engram save <title> <content> [--type TYPE] [--project PROJECT] [--scope SCOPE] [--topic TOPIC_KEY]")
@@ -1034,6 +1246,138 @@ func cmdSave(cfg store.Config) {
 	}
 
 	fmt.Printf("Memory saved: #%d %q (%s)\n", id, title, typ)
+}
+
+func cmdCompact(cfg store.Config) {
+	minGroupSize := 3
+	maxAgeDays := 30
+	typ := ""
+	project := ""
+
+	for i := 2; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--min-group-size":
+			if i+1 < len(os.Args) {
+				if n, err := strconv.Atoi(os.Args[i+1]); err == nil {
+					minGroupSize = n
+				}
+				i++
+			}
+		case "--max-age-days":
+			if i+1 < len(os.Args) {
+				if n, err := strconv.Atoi(os.Args[i+1]); err == nil {
+					maxAgeDays = n
+				}
+				i++
+			}
+		case "--type":
+			if i+1 < len(os.Args) {
+				typ = os.Args[i+1]
+				i++
+			}
+		case "--project":
+			if i+1 < len(os.Args) {
+				project = os.Args[i+1]
+				i++
+			}
+		}
+	}
+
+	s, err := storeNew(cfg)
+	if err != nil {
+		fatal(err)
+	}
+	defer s.Close()
+
+	maxAge := time.Duration(maxAgeDays) * 24 * time.Hour
+	candidates, err := s.FindCompactionCandidates(maxAge, minGroupSize)
+	if err != nil {
+		fatal(err)
+	}
+
+	if len(candidates) == 0 {
+		fmt.Println("No observations found that are eligible for compaction.")
+		return
+	}
+
+	// Filter by type if specified
+	if typ != "" {
+		filtered := candidates[:0]
+		for _, c := range candidates {
+			if c.Type == typ {
+				filtered = append(filtered, c)
+			}
+		}
+		candidates = filtered
+	}
+
+	// Filter by project if specified
+	if project != "" {
+		filtered := candidates[:0]
+		for _, c := range candidates {
+			if c.Project != nil && *c.Project == project {
+				filtered = append(filtered, c)
+			} else if c.Project == nil && project == "" {
+				filtered = append(filtered, c)
+			}
+		}
+		candidates = filtered
+	}
+
+	if len(candidates) == 0 {
+		fmt.Println("No observations match the specified filters for compaction.")
+		return
+	}
+
+	fmt.Printf("Found %d group(s) eligible for compaction:\n\n", len(candidates))
+	for _, g := range candidates {
+		projectStr := ""
+		if g.Project != nil {
+			projectStr = fmt.Sprintf(" [%s]", *g.Project)
+		}
+		oldest, newest := s.ObservationDateRange(g.SourceIDs)
+		fmt.Printf("- %s%s: %d observations (oldest: %s, newest: %s)\n",
+			g.Type, projectStr, len(g.SourceIDs), oldest, newest)
+	}
+
+	// Auto-compact all eligible groups
+	fmt.Printf("\nCompacting %d group(s)...\n\n", len(candidates))
+	var compacted int
+	for _, group := range candidates {
+		if len(group.SourceIDs) < minGroupSize {
+			continue
+		}
+
+		summaryTitle := fmt.Sprintf("%s: %d related memories compacted", group.Type, len(group.SourceIDs))
+		if group.Project != nil && *group.Project != "" {
+			summaryTitle = fmt.Sprintf("%s [%s]: %d related memories compacted", group.Type, *group.Project, len(group.SourceIDs))
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Summarized %d related %s observations:\n", len(group.SourceIDs), group.Type))
+		for i, id := range group.SourceIDs {
+			sb.WriteString(fmt.Sprintf("  - Source #%d\n", id))
+			if i >= 9 {
+				sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(group.SourceIDs)-i-1))
+				break
+			}
+		}
+
+		if err := s.ExecuteCompaction(group, summaryTitle, sb.String()); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: compaction failed for group type=%s: %v\n", group.Type, err)
+			continue
+		}
+
+		compacted++
+		fmt.Printf("  Compacted: %s (%d sources)\n", summaryTitle, len(group.SourceIDs))
+	}
+
+	if compacted == 0 {
+		fmt.Println("No groups met the compaction criteria.")
+		return
+	}
+
+	fmt.Printf("\nCompacted %d group(s). Superseded observations remain searchable but won't appear in normal results.\n", compacted)
 }
 
 func cmdTimeline(cfg store.Config) {
@@ -2264,8 +2608,10 @@ Commands:
                        Combine: --tools=agent,admin or pick individual tools
                        Example: engram mcp --tools=agent
   tui                Launch interactive terminal UI
-  search <query>     Search memories [--type TYPE] [--project PROJECT] [--scope SCOPE] [--limit N]
-  save <title> <msg> Save a memory  [--type TYPE] [--project PROJECT] [--scope SCOPE]
+ search <query>     Search memories [--type TYPE] [--project PROJECT] [--scope SCOPE] [--limit N] [--include-global]
+   global_save <title> <msg> Save to global scope (accessible from ALL projects) [--type TYPE]
+   global_search <query> Search only global memories [--type TYPE] [--limit N]
+   save <title> <msg> Save a memory  [--type TYPE] [--project PROJECT] [--scope SCOPE]
   timeline <obs_id>  Show chronological context around an observation [--before N] [--after N]
   conflicts <sub>   Inspect and manage memory conflict relations
                        list     [--project P]  [--status S]  [--since RFC3339]  [--limit N]
@@ -2277,7 +2623,8 @@ Commands:
                        deferred [--status S]  [--limit N]  [--inspect SYNC_ID]  [--replay]
   doctor             Run read-only operational diagnostics [--json] [--project P] [--check CODE]
   context [project]  Show recent context from previous sessions
-  stats              Show memory system statistics
+   compact            Compact old memories by summarizing related groups [--min-group-size N] [--max-age-days N] [--type TYPE] [--project PROJECT]
+   stats              Show memory system statistics
   export [file]      Export all memories to JSON (default: engram-export.json)
   import <file>      Import memories from a JSON export file
   projects list      List all projects with observation, session, and prompt counts

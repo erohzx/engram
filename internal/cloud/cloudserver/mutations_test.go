@@ -1,4 +1,4 @@
-package cloudserver
+﻿package cloudserver
 
 import (
 	"bytes"
@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/cloudstore"
-	"github.com/Gentleman-Programming/engram/internal/store"
-	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
+	"engram-hybrid/internal/cloud/cloudstore"
+	"engram-hybrid/internal/store"
+	engramsync "engram-hybrid/internal/sync"
 )
 
 // ─── Fakes for mutation tests ─────────────────────────────────────────────────

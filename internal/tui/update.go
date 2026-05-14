@@ -1,7 +1,7 @@
-package tui
+﻿package tui
 
 import (
-	"github.com/Gentleman-Programming/engram/internal/setup"
+	"engram-hybrid/internal/setup"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )

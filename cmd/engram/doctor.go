@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"context"
@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Gentleman-Programming/engram/internal/diagnostic"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/diagnostic"
+	"engram-hybrid/internal/store"
 )
 
 func cmdDoctor(cfg store.Config) {

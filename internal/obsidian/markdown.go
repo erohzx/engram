@@ -1,10 +1,10 @@
-package obsidian
+﻿package obsidian
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/store"
 )
 
 // ObservationToMarkdown converts a store.Observation into an Obsidian-compatible

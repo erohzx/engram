@@ -1,12 +1,12 @@
-package diagnostic
+﻿package diagnostic
 
 import (
 	"context"
 	"os"
 	"strings"
 
-	projectpkg "github.com/Gentleman-Programming/engram/internal/project"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	projectpkg "engram-hybrid/internal/project"
+	"engram-hybrid/internal/store"
 )
 
 const (

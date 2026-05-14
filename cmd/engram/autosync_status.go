@@ -1,8 +1,8 @@
-package main
+﻿package main
 
 import (
-	"github.com/Gentleman-Programming/engram/internal/cloud/autosync"
-	"github.com/Gentleman-Programming/engram/internal/server"
+	"engram-hybrid/internal/cloud/autosync"
+	"engram-hybrid/internal/server"
 )
 
 // autosyncStatusProvider is the interface subset of autosync.Manager used by the adapter.

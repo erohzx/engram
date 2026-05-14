@@ -1,4 +1,4 @@
-// Package autosync implements a lease-guarded background sync manager
+﻿// Package autosync implements a lease-guarded background sync manager
 // for Engram's local-first cloud replication.
 //
 // The manager runs in long-lived local processes (serve, mcp) and:
@@ -24,9 +24,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/constants"
-	"github.com/Gentleman-Programming/engram/internal/cloud/syncguidance"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/cloud/constants"
+	"engram-hybrid/internal/cloud/syncguidance"
+	"engram-hybrid/internal/store"
 )
 
 // ─── Phase Constants ─────────────────────────────────────────────────────────

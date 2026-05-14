@@ -1,4 +1,4 @@
-package auth
+﻿package auth
 
 import (
 	"encoding/base64"
@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/cloudstore"
+	"engram-hybrid/internal/cloud/cloudstore"
 )
 
 func TestNewServiceSecretValidation(t *testing.T) {

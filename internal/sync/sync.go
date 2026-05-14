@@ -1,4 +1,4 @@
-// Package sync implements git-friendly memory synchronization for Engram.
+﻿// Package sync implements git-friendly memory synchronization for Engram.
 //
 // Instead of a single large JSON file, memories are stored as compressed
 // JSONL chunks with a manifest index. This design:
@@ -32,8 +32,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/chunkcodec"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"engram-hybrid/internal/cloud/chunkcodec"
+	"engram-hybrid/internal/store"
 )
 
 var (
